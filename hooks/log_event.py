@@ -38,20 +38,27 @@ EMOJIS = {
 }
 
 
+def encode_project_path(project_dir: str) -> str:
+    """Encode a project directory path for use as a directory name.
+
+    Mirrors Claude Code's ~/.claude/projects/ convention:
+    /home/shawn/Workspace/app -> -home-shawn-Workspace-app
+    """
+    return project_dir.replace("/", "-")
+
+
 def get_storage_path(cwd: Optional[str] = None) -> Path:
-    """Get the storage path for logging data.
+    """Get the centralized storage path for logging data.
+
+    Logs are stored at ~/.claude/local/logging/<encoded-project-path>/
+    where the project path is encoded by replacing / with -
 
     Args:
         cwd: Working directory from hook data (preferred source)
     """
-    # Check for explicit setting
-    storage_path = os.environ.get("LOGGING_STORAGE_PATH")
-    if storage_path:
-        return Path(storage_path)
-
-    # Use cwd from hook data first, then env var, then os.getcwd()
     project_dir = cwd or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
-    return Path(project_dir) / ".claude" / "local" / "logging"
+    encoded = encode_project_path(project_dir)
+    return Path.home() / ".claude" / "local" / "logging" / encoded
 
 
 def get_session_path(storage_path: Path, session_id: str) -> Path:
