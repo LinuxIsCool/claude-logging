@@ -6,6 +6,7 @@ import { SessionList } from "@/components/session-list";
 import { StatsPanel } from "@/components/stats-panel";
 import { EmbeddingGraph } from "@/components/embedding-graph";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ScoringSettingsProvider } from "@/lib/scoring-settings";
 
 export default function Home() {
   const [stats, setStats] = useState<{
@@ -24,6 +25,7 @@ export default function Home() {
   }, []);
 
   return (
+    <ScoringSettingsProvider>
     <div className="flex flex-col h-screen">
       {/* Header */}
       <header className="border-b px-6 py-4">
@@ -90,5 +92,6 @@ export default function Home() {
         </Tabs>
       </main>
     </div>
+    </ScoringSettingsProvider>
   );
 }

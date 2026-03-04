@@ -38,6 +38,14 @@ import {
   type ImageReference,
 } from "@/lib/api";
 import {
+  useScoringSettings,
+  transformScore,
+  scoreToBackground,
+  formatScorePercent,
+  calculateSessionScore,
+} from "@/lib/scoring-settings";
+import { ScoringSettingsDropdown } from "@/components/scoring-settings-dropdown";
+import {
   formatDateTime,
   getEventTypeLabel,
   truncate,
@@ -104,6 +112,10 @@ export function SessionList() {
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [matchingSessionIds, setMatchingSessionIds] = useState<Set<string>>(new Set());
 
+  // Scoring state - maps event_id to cosine_similarity for highlighting
+  const [eventScores, setEventScores] = useState<Map<string, number>>(new Map());
+  const { settings } = useScoringSettings();
+
   // Session state
   const [sessions, setSessions] = useState<Session[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -137,6 +149,7 @@ export function SessionList() {
     if (!query.trim()) {
       setSearchResults([]);
       setMatchingSessionIds(new Set());
+      setEventScores(new Map());
       return;
     }
 
@@ -152,6 +165,14 @@ export function SessionList() {
       // Extract unique session IDs from results
       const sessionIds = new Set(response.results.map((r) => r.session_id));
       setMatchingSessionIds(sessionIds);
+
+      // Build event score map from cosine_similarity
+      const scoreMap = new Map<string, number>();
+      for (const result of response.results) {
+        // Use cosine_similarity if available, otherwise 0
+        scoreMap.set(result.event_id, result.cosine_similarity || 0);
+      }
+      setEventScores(scoreMap);
     } catch (err) {
       console.error("Search failed:", err);
     } finally {
@@ -171,8 +192,35 @@ export function SessionList() {
     if (!query.trim()) {
       setSearchResults([]);
       setMatchingSessionIds(new Set());
+      setEventScores(new Map());
     }
   }, [query]);
+
+  // Calculate session scores based on event scores and settings
+  const sessionScores = React.useMemo(() => {
+    const scores = new Map<string, number>();
+    const sessionEventScores = new Map<string, number[]>();
+
+    // Group scores by session
+    for (const result of searchResults) {
+      const score = eventScores.get(result.event_id) || 0;
+      const existing = sessionEventScores.get(result.session_id) || [];
+      existing.push(score);
+      sessionEventScores.set(result.session_id, existing);
+    }
+
+    // Calculate aggregate score per session
+    for (const [sessionId, eventScoreList] of sessionEventScores) {
+      scores.set(sessionId, calculateSessionScore(eventScoreList, settings.sessionAggregate));
+    }
+
+    return scores;
+  }, [searchResults, eventScores, settings.sessionAggregate]);
+
+  // Get all cosine scores for ordinal mode transformation
+  const allCosineScores = React.useMemo(() => {
+    return Array.from(eventScores.values()).filter((s) => s > 0);
+  }, [eventScores]);
 
   // Toggle event type filter
   const toggleEventType = (type: string) => {
@@ -268,6 +316,7 @@ export function SessionList() {
                 setQuery("");
                 setSearchResults([]);
                 setMatchingSessionIds(new Set());
+                setEventScores(new Map());
                 inputRef.current?.focus();
               }}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
@@ -284,6 +333,7 @@ export function SessionList() {
             "Search"
           )}
         </Button>
+        <ScoringSettingsDropdown />
       </div>
 
       {/* Event Type Filters */}
@@ -332,19 +382,25 @@ export function SessionList() {
           </h2>
           <ScrollArea className="flex-1">
             <div className="space-y-2 pr-4">
-              {filteredSessions.map((session) => (
-                <SessionCard
-                  key={session.id}
-                  session={session}
-                  isSelected={selectedSession === session.id}
-                  onClick={() => handleSelectSession(session.id)}
-                  matchCount={
-                    searchResults.filter((r) => r.session_id === session.id).length
-                  }
-                  hasMatches={matchingSessionIds.has(session.id)}
-                  selectedTypes={selectedTypes}
-                />
-              ))}
+              {filteredSessions.map((session) => {
+                const rawScore = sessionScores.get(session.id) || 0;
+                const transformedScore = transformScore(rawScore, settings.scaleMode, allCosineScores);
+                return (
+                  <SessionCard
+                    key={session.id}
+                    session={session}
+                    isSelected={selectedSession === session.id}
+                    onClick={() => handleSelectSession(session.id)}
+                    matchCount={
+                      searchResults.filter((r) => r.session_id === session.id).length
+                    }
+                    hasMatches={matchingSessionIds.has(session.id)}
+                    selectedTypes={selectedTypes}
+                    similarityScore={rawScore}
+                    transformedScore={transformedScore}
+                  />
+                );
+              })}
               {filteredSessions.length === 0 && query.trim() && (
                 <div className="text-center py-8 text-muted-foreground">
                   No sessions match your search
@@ -364,6 +420,9 @@ export function SessionList() {
                 isLoading={isLoadingEvents}
                 matchingEventIds={matchingEventIds}
                 selectedTypes={selectedTypes}
+                eventScores={eventScores}
+                scaleMode={settings.scaleMode}
+                allCosineScores={allCosineScores}
               />
             </SearchProvider>
           ) : (
@@ -449,6 +508,8 @@ function SessionCard({
   matchCount,
   hasMatches,
   selectedTypes,
+  similarityScore,
+  transformedScore,
 }: {
   session: Session;
   isSelected: boolean;
@@ -456,15 +517,26 @@ function SessionCard({
   matchCount: number;
   hasMatches: boolean;
   selectedTypes: string[];
+  similarityScore?: number;  // Raw cosine similarity (0-1)
+  transformedScore?: number; // Transformed for display (0-1)
 }) {
+  // Calculate background color from transformed score
+  const backgroundColor = transformedScore && transformedScore > 0
+    ? scoreToBackground(transformedScore)
+    : undefined;
+
   return (
     <Card
       className={cn(
         "cursor-pointer transition-colors",
         isSelected ? "border-primary bg-accent" : "hover:bg-accent/50",
-        hasMatches && !isSelected && "border-yellow-500/50"
+        // Only show yellow border if no similarity score (keyword-only match)
+        hasMatches && !isSelected && !similarityScore && "border-yellow-500/50",
+        // Green border for semantic matches
+        hasMatches && !isSelected && similarityScore && similarityScore > 0 && "border-green-500/50"
       )}
       onClick={onClick}
+      style={{ backgroundColor: isSelected ? undefined : backgroundColor }}
     >
       <CardContent className="p-3">
         <div className="flex items-center justify-between">
@@ -475,6 +547,15 @@ function SessionCard({
               {matchCount > 0 && (
                 <Badge variant="secondary" className="text-xs">
                   {matchCount} match{matchCount !== 1 ? "es" : ""}
+                </Badge>
+              )}
+              {/* Similarity score badge */}
+              {similarityScore !== undefined && similarityScore > 0 && (
+                <Badge
+                  variant="outline"
+                  className="text-green-400 border-green-500/40 text-xs"
+                >
+                  {formatScorePercent(similarityScore)}
                 </Badge>
               )}
             </div>
@@ -608,12 +689,18 @@ function EventsTimeline({
   isLoading,
   matchingEventIds,
   selectedTypes,
+  eventScores,
+  scaleMode,
+  allCosineScores,
 }: {
   events: Event[];
   sessionId: string;
   isLoading: boolean;
   matchingEventIds: Set<string>;
   selectedTypes: string[];
+  eventScores: Map<string, number>;
+  scaleMode: "linear" | "logarithmic" | "ordinal";
+  allCosineScores: number[];
 }) {
   // Filter events by type if filters are active
   const filteredEvents = selectedTypes.length > 0
@@ -670,6 +757,8 @@ function EventsTimeline({
               );
             } else if (group.event) {
               const isMatch = matchingEventIds.has(group.event.id);
+              const rawScore = eventScores.get(group.event.id) || 0;
+              const transformedScore = transformScore(rawScore, scaleMode, allCosineScores);
 
               // Use SubagentCard for SubagentStop events
               if (group.event.type === "SubagentStop") {
@@ -680,6 +769,8 @@ function EventsTimeline({
                     sessionId={sessionId}
                     allEvents={filteredEvents}
                     isMatch={isMatch}
+                    similarityScore={rawScore}
+                    transformedScore={transformedScore}
                   />
                 );
               }
@@ -689,6 +780,8 @@ function EventsTimeline({
                   key={group.event.id}
                   event={group.event}
                   isMatch={isMatch}
+                  similarityScore={rawScore}
+                  transformedScore={transformedScore}
                 />
               );
             }
@@ -754,9 +847,13 @@ function extractTaskResult(promptText: string): { summary: string; content: stri
 function EventCard({
   event,
   isMatch,
+  similarityScore,
+  transformedScore,
 }: {
   event: Event;
   isMatch: boolean;
+  similarityScore?: number;  // Raw cosine similarity (0-1)
+  transformedScore?: number; // Transformed for display (0-1)
 }) {
   // Extract prompt text once for task notification checks
   const promptText = event.type === "UserPromptSubmit"
@@ -923,9 +1020,20 @@ function EventCard({
   const isUserOrAssistant =
     (event.type === "UserPromptSubmit" && !isTaskNotification) || event.type === "AssistantResponse";
 
+  // Calculate background color: green spectrum for semantic matches, yellow fallback for keyword-only
+  const hasSemanticScore = transformedScore !== undefined && transformedScore > 0;
+  const backgroundColor = hasSemanticScore
+    ? scoreToBackground(transformedScore)
+    : undefined;
+
   return (
     <div
-      className={cn("relative pl-6 pb-2", isMatch && "bg-yellow-500/10 rounded-lg")}
+      className={cn(
+        "relative pl-6 pb-2 rounded-lg",
+        // Only apply yellow background if keyword match without semantic score
+        isMatch && !hasSemanticScore && "bg-yellow-500/10"
+      )}
+      style={{ backgroundColor }}
     >
       {/* Timeline line */}
       <div className="timeline-line" />
@@ -933,7 +1041,8 @@ function EventCard({
       <div
         className={cn(
           "absolute left-0 w-5 h-5 flex items-center justify-center text-sm",
-          isMatch && "ring-2 ring-yellow-500 rounded-full"
+          isMatch && !hasSemanticScore && "ring-2 ring-yellow-500 rounded-full",
+          isMatch && hasSemanticScore && "ring-2 ring-green-500 rounded-full"
         )}
       >
         {emoji}
@@ -943,7 +1052,8 @@ function EventCard({
         className={cn(
           "ml-4 rounded-lg overflow-hidden",
           isUserOrAssistant ? "bg-accent/50" : "bg-muted/30",
-          isMatch && "ring-1 ring-yellow-500/50"
+          isMatch && !hasSemanticScore && "ring-1 ring-yellow-500/50",
+          isMatch && hasSemanticScore && "ring-1 ring-green-500/50"
         )}
       >
         {/* Header - clickable for collapsible items */}
@@ -978,6 +1088,12 @@ function EventCard({
               summary
             )}
           </span>
+          {/* Similarity score badge */}
+          {similarityScore !== undefined && similarityScore > 0 && (
+            <span className="text-green-400 text-xs ml-auto">
+              {formatScorePercent(similarityScore)}
+            </span>
+          )}
         </div>
 
         {/* Expanded content for collapsible types */}
@@ -1276,11 +1392,15 @@ function SubagentCard({
   sessionId,
   allEvents,
   isMatch,
+  similarityScore,
+  transformedScore,
 }: {
   event: Event;
   sessionId: string;
   allEvents: Event[];
   isMatch: boolean;
+  similarityScore?: number;
+  transformedScore?: number;
 }) {
   const [isExpanded, setIsExpanded] = useState(isMatch);
   const [showPrompt, setShowPrompt] = useState(false);
@@ -1337,9 +1457,19 @@ function SubagentCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isExpanded]);
 
+  // Calculate background color: green spectrum for semantic matches
+  const hasSemanticScore = transformedScore !== undefined && transformedScore > 0;
+  const backgroundColor = hasSemanticScore
+    ? scoreToBackground(transformedScore)
+    : undefined;
+
   return (
     <div
-      className={cn("relative pl-6 pb-2", isMatch && "bg-yellow-500/10 rounded-lg")}
+      className={cn(
+        "relative pl-6 pb-2 rounded-lg",
+        isMatch && !hasSemanticScore && "bg-yellow-500/10"
+      )}
+      style={{ backgroundColor }}
     >
       {/* Timeline line */}
       <div className="timeline-line" />
@@ -1347,7 +1477,8 @@ function SubagentCard({
       <div
         className={cn(
           "absolute left-0 w-5 h-5 flex items-center justify-center text-sm",
-          isMatch && "ring-2 ring-yellow-500 rounded-full"
+          isMatch && !hasSemanticScore && "ring-2 ring-yellow-500 rounded-full",
+          isMatch && hasSemanticScore && "ring-2 ring-green-500 rounded-full"
         )}
       >
         🔵
@@ -1356,7 +1487,8 @@ function SubagentCard({
       <div
         className={cn(
           "ml-4 rounded-lg overflow-hidden bg-blue-500/10 border border-blue-500/30",
-          isMatch && "ring-1 ring-yellow-500/50"
+          isMatch && !hasSemanticScore && "ring-1 ring-yellow-500/50",
+          isMatch && hasSemanticScore && "ring-1 ring-green-500/50"
         )}
       >
         {/* Header - clickable to expand */}
