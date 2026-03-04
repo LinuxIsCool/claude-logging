@@ -20,9 +20,10 @@ class SearchResult:
     session_id: str
     event_type: str
     content: str
-    score: float
+    score: float  # RRF score for ranking (0.01-0.03 typical)
     timestamp: str
     source: str = "keyword"  # 'keyword', 'semantic', or 'hybrid'
+    cosine_similarity: float = 0.0  # Raw semantic similarity (0.0-1.0) for display
 
 
 class SearchService:
@@ -118,9 +119,10 @@ class SearchService:
                 session_id=r["session_id"],
                 event_type=r["event_type"],
                 content=r["content"],
-                score=r["score"],
+                score=r["score"],  # This is cosine similarity from embeddings
                 timestamp=r["timestamp"],
-                source="semantic"
+                source="semantic",
+                cosine_similarity=r["score"]  # Preserve raw cosine for display
             )
             for r in results
         ]
@@ -138,9 +140,12 @@ class SearchService:
 
         This is rank-based (not score-based), making it robust to
         different score distributions from different search methods.
+
+        Preserves cosine_similarity from semantic results for display purposes.
         """
         scores = {}
         result_map = {}
+        cosine_scores = {}  # Preserve cosine similarity from semantic search
 
         # Score from keyword results
         for rank, result in enumerate(keyword_results):
@@ -152,6 +157,8 @@ class SearchService:
         for rank, result in enumerate(semantic_results):
             rrf_score = 1 / (k + rank + 1)
             scores[result.event_id] = scores.get(result.event_id, 0) + rrf_score
+            # Preserve cosine similarity from semantic results
+            cosine_scores[result.event_id] = result.cosine_similarity
             if result.event_id not in result_map:
                 result_map[result.event_id] = result
 
@@ -168,7 +175,8 @@ class SearchService:
                 content=result.content,
                 score=scores[event_id],
                 timestamp=result.timestamp,
-                source="hybrid"
+                source="hybrid",
+                cosine_similarity=cosine_scores.get(event_id, 0.0)
             ))
 
         return results

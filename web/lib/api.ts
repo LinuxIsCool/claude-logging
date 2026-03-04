@@ -3,9 +3,10 @@ export interface SearchResult {
   session_id: string;
   event_type: string;
   content: string;
-  score: number;
+  score: number;  // RRF score for ranking
   timestamp: string;
   source: string;
+  cosine_similarity: number;  // Semantic similarity (0.0-1.0) for display
 }
 
 export interface SearchResponse {

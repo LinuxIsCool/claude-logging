@@ -2,13 +2,14 @@
 FastAPI Server for Logging Plugin
 
 Provides REST API for search, statistics, and real-time updates.
+Includes live sync with ~/.claude/ directory for real-time event streaming.
 """
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from pathlib import Path
 import asyncio
 import json
@@ -22,16 +23,68 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from lib.storage import StorageManager
 from lib.search import SearchService
+from lib.embeddings import EmbeddingService, EmbeddingStorage
+from lib.sync_manager import SyncManager
+from lib.broadcast import BroadcastService
+from lib.session_metadata import SessionMetadata, AgentCard, SessionStatus
+from lib.metadata_aggregator import MetadataAggregator
 
 
-# Configuration
+# Configuration — centralized storage under ~/.claude/local/logging/<encoded-project-dir>
 _project_dir = os.environ.get("CLAUDE_PROJECT_DIR", os.getcwd())
 _encoded = _project_dir.replace("/", "-")
 STORAGE_PATH = Path.home() / ".claude" / "local" / "logging" / _encoded
 
+
+class EmbeddingManager:
+    """
+    Combines EmbeddingService (encode) and EmbeddingStorage (search) into a single
+    interface expected by SearchService.semantic_search().
+    """
+    def __init__(self, storage_path: Path):
+        self.service = EmbeddingService()
+        self.storage = EmbeddingStorage(storage_path / "embeddings.db")
+        self._available = self.service.is_available
+
+    @property
+    def is_available(self) -> bool:
+        return self._available
+
+    def encode(self, texts):
+        """Encode texts using the embedding service."""
+        return self.service.encode(texts)
+
+    def search(self, query_embedding, limit=20, filters=None):
+        """Search for similar embeddings using the storage."""
+        return self.storage.search(query_embedding, limit=limit, filters=filters)
+
+
 # Initialize services
 storage = StorageManager(STORAGE_PATH)
-search = SearchService(storage.sqlite)
+
+# Initialize embedding manager (combines service + storage for SearchService)
+embedding_manager = EmbeddingManager(STORAGE_PATH)
+if embedding_manager.is_available:
+    print(f"✓ Embeddings available (model: {embedding_manager.service.model_name})")
+else:
+    print("⚠ Embeddings not available (sentence-transformers not installed)")
+
+search = SearchService(storage.sqlite, embedding_service=embedding_manager if embedding_manager.is_available else None)
+
+# Initialize live sync components
+CLAUDE_DIR = Path.home() / ".claude"
+broadcast = BroadcastService()
+sync_manager = SyncManager(
+    claude_dir=CLAUDE_DIR,
+    storage=storage,
+    broadcast_queue=broadcast.queue
+)
+
+# Initialize metadata aggregator
+metadata_aggregator = MetadataAggregator(
+    claude_dir=CLAUDE_DIR,
+    storage=storage
+)
 
 # Create FastAPI app
 app = FastAPI(
@@ -65,9 +118,10 @@ class SearchResultItem(BaseModel):
     session_id: str
     event_type: str
     content: str
-    score: float
+    score: float  # RRF score for ranking
     timestamp: str
     source: str
+    cosine_similarity: float = 0.0  # Semantic similarity (0.0-1.0) for display
 
 
 class SearchResponse(BaseModel):
@@ -128,10 +182,14 @@ async def search_logs(request: SearchRequest):
                     event_id=r.event_id,
                     session_id=r.session_id,
                     event_type=r.event_type,
-                    content=r.content[:500],  # Truncate for response
+                    # NOTE: Content truncated to 500 chars for API response size.
+                    # Full content available via session detail endpoint.
+                    # Review: Is this limit appropriate? Consider making configurable.
+                    content=r.content[:500],
                     score=r.score,
                     timestamp=r.timestamp,
-                    source=r.source
+                    source=r.source,
+                    cosine_similarity=r.cosine_similarity
                 )
                 for r in results
             ],
@@ -440,51 +498,46 @@ async def serve_image(session_id: str, filename: str):
 
 
 @app.get("/api/events/stream")
-async def stream_events():
+async def stream_events(
+    session_id: Optional[str] = None,
+    event_types: Optional[str] = None
+):
     """
     Stream new events using Server-Sent Events (SSE).
 
-    Watches the sessions directory for changes and emits events.
+    Supports both hook-generated events and live sync from ~/.claude/.
+
+    Query params:
+        session_id: Filter to specific session
+        event_types: Comma-separated list of event types to include
     """
+    # Build filters
+    filters = {}
+    if session_id:
+        filters["session_id"] = session_id
+    if event_types:
+        filters["event_types"] = event_types.split(",")
+
+    # Subscribe to broadcast (async)
+    subscriber_queue = await broadcast.subscribe(filters)
+
     async def event_generator():
         try:
-            import watchfiles
-
-            sessions_dir = STORAGE_PATH / "sessions"
-
-            async for changes in watchfiles.awatch(sessions_dir):
-                for change_type, path in changes:
-                    if path.endswith(".jsonl"):
-                        # Read last line of changed file
-                        try:
-                            with open(path, "r") as f:
-                                lines = f.readlines()
-                                if lines:
-                                    event = json.loads(lines[-1])
-                                    yield f"data: {json.dumps(event)}\n\n"
-                        except Exception:
-                            pass
-        except ImportError:
-            # watchfiles not installed, poll instead
-            seen_positions = {}
-
             while True:
-                sessions_dir = STORAGE_PATH / "sessions"
-
-                for session_file in sessions_dir.glob("*.jsonl"):
-                    current_size = session_file.stat().st_size
-                    last_size = seen_positions.get(str(session_file), 0)
-
-                    if current_size > last_size:
-                        with open(session_file, "r") as f:
-                            f.seek(last_size)
-                            for line in f:
-                                if line.strip():
-                                    yield f"data: {line}\n\n"
-
-                        seen_positions[str(session_file)] = current_size
-
-                await asyncio.sleep(1)
+                try:
+                    # Wait for events with timeout
+                    event = await asyncio.wait_for(
+                        subscriber_queue.get(),
+                        timeout=30.0
+                    )
+                    yield f"data: {json.dumps(event)}\n\n"
+                except asyncio.TimeoutError:
+                    # Send keepalive
+                    yield f": keepalive\n\n"
+        except Exception:
+            pass
+        finally:
+            await broadcast.unsubscribe(subscriber_queue)
 
     return StreamingResponse(
         event_generator(),
@@ -492,15 +545,320 @@ async def stream_events():
     )
 
 
+# ============================================================================
+# Sync Endpoints
+# ============================================================================
+
+@app.get("/api/sync/status")
+async def get_sync_status():
+    """Get current sync status including watcher and discovered sessions."""
+    return sync_manager.get_status()
+
+
+@app.post("/api/sync/session/{session_id}")
+async def sync_session(session_id: str):
+    """
+    Manually sync a specific session from ~/.claude/.
+
+    Imports new events from the native transcript.
+    """
+    try:
+        count = await sync_manager.sync_session(session_id)
+        return {"session_id": session_id, "events_synced": count}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/sync/historical")
+async def sync_historical():
+    """
+    Import all historical sessions from ~/.claude/.
+
+    This may take a while for large transcript collections.
+    """
+    try:
+        results = await sync_manager.sync_all_historical()
+        return {
+            "sessions_processed": len(results),
+            "total_events": sum(results.values()),
+            "by_session": results
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/sync/discover")
+async def discover_sessions():
+    """
+    Discover all sessions in ~/.claude/ without syncing.
+
+    Returns session info including size, subagent count, etc.
+    """
+    try:
+        sessions = sync_manager.watcher.discover_sessions()
+        return {
+            "count": len(sessions),
+            "sessions": [
+                {
+                    "session_id": s["session_id"],
+                    "project_path": s["project_path"],
+                    "size_bytes": s["size"],
+                    "subagent_count": len(s.get("subagents", [])),
+                }
+                for s in sessions
+            ]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/broadcast/status")
+async def get_broadcast_status():
+    """Get broadcast service status including subscriber count."""
+    return broadcast.get_status()
+
+
+# ============================================================================
+# Session Metadata Endpoints
+# ============================================================================
+
+@app.get("/api/metadata/sessions")
+async def get_session_metadata(
+    limit: int = Query(50, ge=1, le=200),
+    status: Optional[str] = None,
+    name: Optional[str] = None
+):
+    """
+    Get enriched session metadata.
+
+    Aggregates data from statusline, registry, and logging events.
+    """
+    try:
+        # Load latest statusline events
+        metadata_aggregator.load_statusline_events()
+
+        # Aggregate all sessions
+        all_metadata = metadata_aggregator.aggregate_all()
+
+        # Filter
+        results = []
+        for m in all_metadata:
+            if status and m.task_status.value != status:
+                continue
+            if name and name.lower() not in (m.name or "").lower():
+                continue
+            results.append(m)
+
+            if len(results) >= limit:
+                break
+
+        # Convert to dict for JSON response
+        return {
+            "count": len(results),
+            "sessions": [
+                {
+                    "session_id": m.session_id,
+                    "name": m.name,
+                    "description": m.description,
+                    "summary": m.summary,
+                    "status": m.task_status.value,
+                    "model": m.model_display_name,
+                    "cwd": m.cwd,
+                    "started_at": m.started_at,
+                    "last_activity": m.last_activity,
+                    "prompt_count": m.prompt_count,
+                    "event_count": m.event_count,
+                    "cost_usd": m.cost.total_cost_usd,
+                    "context_pct": m.cost.context_percentage,
+                    "git_branch": m.git.branch,
+                    "process_number": m.process_number,
+                    "auto_named": m.auto_named,
+                }
+                for m in results
+            ]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/metadata/sessions/{session_id}")
+async def get_session_metadata_detail(session_id: str):
+    """Get detailed metadata for a specific session."""
+    try:
+        metadata_aggregator.load_statusline_events()
+        metadata = metadata_aggregator.aggregate_session(session_id)
+
+        if not metadata:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        return {
+            "session_id": metadata.session_id,
+            "name": metadata.name,
+            "description": metadata.description,
+            "summary": metadata.summary,
+            "status": metadata.task_status.value,
+            "room_type": metadata.room_type.value,
+            "parent_session_id": metadata.parent_session_id,
+            "model": metadata.model,
+            "model_display_name": metadata.model_display_name,
+            "claude_code_version": metadata.claude_code_version,
+            "cwd": metadata.cwd,
+            "world_id": metadata.world_id,
+            "started_at": metadata.started_at,
+            "ended_at": metadata.ended_at,
+            "last_activity": metadata.last_activity,
+            "duration_seconds": metadata.duration_seconds,
+            "prompt_count": metadata.prompt_count,
+            "event_count": metadata.event_count,
+            "agent_session_num": metadata.agent_session_num,
+            "cost": {
+                "total_usd": metadata.cost.total_cost_usd,
+                "input_tokens": metadata.cost.input_tokens,
+                "output_tokens": metadata.cost.output_tokens,
+                "cache_read_tokens": metadata.cost.cache_read_tokens,
+                "cache_write_tokens": metadata.cost.cache_write_tokens,
+                "context_pct": metadata.cost.context_percentage,
+                "peak_context_pct": metadata.cost.peak_context_percentage,
+            },
+            "git": {
+                "branch": metadata.git.branch,
+                "lines_added": metadata.git.lines_added,
+                "lines_removed": metadata.git.lines_removed,
+                "is_dirty": metadata.git.is_dirty,
+            },
+            "capabilities": {
+                "tools_used": metadata.capabilities.tools_used,
+                "tool_frequency": metadata.capabilities.tool_frequency,
+                "web_access": metadata.capabilities.web_access,
+            },
+            "process_number": metadata.process_number,
+            "pane_id": metadata.pane_id,
+            "tags": metadata.tags,
+            "auto_named": metadata.auto_named,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/metadata/active")
+async def get_active_sessions():
+    """Get metadata for currently active sessions from registry."""
+    try:
+        active = metadata_aggregator.get_active_sessions()
+        return {
+            "count": len(active),
+            "sessions": [
+                {
+                    "session_id": m.session_id,
+                    "name": m.name,
+                    "description": m.description,
+                    "summary": m.summary,
+                    "model": m.model_display_name,
+                    "cwd": m.cwd,
+                    "cost_usd": m.cost.total_cost_usd,
+                    "context_pct": m.cost.context_percentage,
+                    "prompt_count": m.prompt_count,
+                    "process_number": m.process_number,
+                }
+                for m in active
+            ]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# A2A Agent Card Endpoints
+# ============================================================================
+
+@app.get("/api/agents")
+async def get_agent_cards(limit: int = Query(50, ge=1, le=200)):
+    """
+    Get A2A-compatible Agent Cards for sessions.
+
+    These can be used for agent discovery and capability advertisement.
+    See: https://a2a-protocol.org/latest/specification/
+    """
+    try:
+        metadata_aggregator.load_statusline_events()
+        cards = metadata_aggregator.get_agent_cards(limit=limit)
+
+        return {
+            "count": len(cards),
+            "agents": [card.to_a2a_json() for card in cards]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/agents/{name}")
+async def get_agent_by_name(name: str):
+    """
+    Get Agent Card for a specific agent by name.
+
+    Names are auto-generated identities like 'Archivist', 'Spark', etc.
+    """
+    try:
+        metadata_aggregator.load_statusline_events()
+        metadata = metadata_aggregator.get_session_by_name(name)
+
+        if not metadata:
+            raise HTTPException(status_code=404, detail=f"Agent '{name}' not found")
+
+        card = metadata.to_agent_card()
+        return card.to_a2a_json()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/agents/export")
+async def export_agent_cards(limit: int = Query(50, ge=1, le=200)):
+    """
+    Export Agent Cards as A2A-compatible JSON.
+
+    Returns raw JSON suitable for agent registries.
+    """
+    try:
+        metadata_aggregator.load_statusline_events()
+        json_str = metadata_aggregator.export_agent_cards_json(limit=limit)
+        return json.loads(json_str)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.on_event("startup")
 async def startup():
-    """Sync all sessions on startup."""
+    """Initialize services on startup."""
+    # Sync hook-generated events from JSONL to SQLite
     storage.sync_all()
+
+    # Start broadcast service for SSE
+    await broadcast.start()
+    print("✓ Broadcast service started")
+
+    # Start live sync with ~/.claude/
+    await sync_manager.start()
+    print(f"✓ Live sync started (watching {CLAUDE_DIR})")
+
+    # Report discovered sessions
+    sessions = sync_manager.watcher.discover_sessions()
+    print(f"✓ Discovered {len(sessions)} sessions in ~/.claude/")
 
 
 @app.on_event("shutdown")
 async def shutdown():
     """Clean up on shutdown."""
+    # Stop sync manager first
+    await sync_manager.stop()
+
+    # Stop broadcast service
+    await broadcast.stop()
+
+    # Close storage
     storage.close()
 
 
