@@ -13,14 +13,23 @@ import os
 __version__ = "1.0.0"
 
 
-def get_storage_path() -> Path:
-    """Get the storage path for logging data."""
-    storage_path = os.environ.get("LOGGING_STORAGE_PATH")
-    if storage_path:
-        return Path(storage_path)
+def encode_project_path(project_dir: str) -> str:
+    """Encode a project directory path for use as a directory name.
 
+    Mirrors Claude Code's ~/.claude/projects/ convention:
+    /home/shawn/Workspace/app -> -home-shawn-Workspace-app
+    """
+    return project_dir.replace("/", "-")
+
+
+def get_storage_path() -> Path:
+    """Get the centralized storage path for logging data.
+
+    Logs are stored at ~/.claude/local/logging/<encoded-project-path>/
+    """
     project_dir = os.environ.get("CLAUDE_PROJECT_DIR", os.getcwd())
-    return Path(project_dir) / ".claude" / "local" / "logging"
+    encoded = encode_project_path(project_dir)
+    return Path.home() / ".claude" / "local" / "logging" / encoded
 
 
 def get_plugin_root() -> Path:
