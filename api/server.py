@@ -151,6 +151,7 @@ async def list_sessions(
 ):
     """List sessions with pagination."""
     try:
+        storage.sync_all()
         sessions = storage.sqlite.list_sessions(
             limit=limit,
             offset=offset,
@@ -203,6 +204,7 @@ async def get_session(session_id: str):
 async def get_stats():
     """Get overall statistics."""
     try:
+        storage.sync_all()
         stats = storage.sqlite.get_stats()
 
         return StatsResponse(
