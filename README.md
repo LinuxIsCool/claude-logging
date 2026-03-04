@@ -35,10 +35,10 @@ Comprehensive conversation logging with hybrid search, embeddings, and visualiza
 
 Once installed, all Claude Code interactions are automatically logged to:
 ```
-$CLAUDE_PROJECT_DIR/.claude/local/logging/
+~/.claude/local/logging/<encoded-project-path>/
 ├── sessions/          # JSONL files (one per session)
 ├── db/               # SQLite database with FTS5
-├── indices/          # Daily/weekly/monthly indices
+├── images/           # Extracted user images
 └── embeddings/       # Vector embeddings (optional)
 ```
 
@@ -66,7 +66,7 @@ What did we discuss about the database schema?
 
 Start the API server:
 ```bash
-cd ~/.claude/plugins/logging
+cd ~/.claude/plugins/claude-logging
 uv run api/server.py
 ```
 
@@ -88,7 +88,7 @@ Open logs in Obsidian:
 
 Launch the full web dashboard:
 ```bash
-cd ~/.claude/plugins/logging
+cd ~/.claude/plugins/claude-logging
 ./scripts/start-web.sh
 ```
 
@@ -149,16 +149,13 @@ Features:
                     └─────────────────┘        └──────────────────┘
 ```
 
-## Configuration
+## Storage
 
-Settings in `plugin.json`:
+Logs are stored centrally at `~/.claude/local/logging/<encoded-project-path>/`.
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `storage_path` | `.claude/local/logging` | Data directory |
-| `enable_embeddings` | `false` | Generate embeddings |
-| `enable_summaries` | `false` | AI-generated summaries |
-| `api_port` | `3001` | API server port |
+The project path is encoded by replacing `/` with `-`, mirroring Claude Code's own `~/.claude/projects/` convention. For example, a project at `/home/user/my-app` stores logs at `~/.claude/local/logging/-home-user-my-app/`.
+
+This means all logs from all projects are in one place, making cross-project search straightforward.
 
 ## Event Schema
 
