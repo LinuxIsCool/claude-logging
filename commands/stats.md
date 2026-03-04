@@ -25,7 +25,7 @@ Shows:
 
 ## Implementation
 
-Query the SQLite database at `.claude/local/logging/db/logging.db`:
+Query the SQLite database at `~/.claude/local/logging/<project>/db/logging.db`:
 
 ```sql
 SELECT
