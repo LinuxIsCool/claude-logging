@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+*.egg-info/
+.eggs/
+
+# Node.js
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+
+# Claude local data (should not be committed)
+.claude/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+errors.log
+
+# Database (local data)
+db/
+*.db
+
+# Build artifacts
+dist/
+build/

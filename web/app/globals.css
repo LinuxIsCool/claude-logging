@@ -1,0 +1,184 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 240 10% 3.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 3.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 3.9%;
+    --primary: 240 5.9% 10%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 240 4.8% 95.9%;
+    --secondary-foreground: 240 5.9% 10%;
+    --muted: 240 4.8% 95.9%;
+    --muted-foreground: 240 3.8% 46.1%;
+    --accent: 240 4.8% 95.9%;
+    --accent-foreground: 240 5.9% 10%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 5.9% 90%;
+    --input: 240 5.9% 90%;
+    --ring: 240 5.9% 10%;
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 240 10% 3.9%;
+    --foreground: 0 0% 98%;
+    --card: 240 10% 3.9%;
+    --card-foreground: 0 0% 98%;
+    --popover: 240 10% 3.9%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 0 0% 98%;
+    --primary-foreground: 240 5.9% 10%;
+    --secondary: 240 3.7% 15.9%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 240 3.7% 15.9%;
+    --muted-foreground: 240 5% 64.9%;
+    --accent: 240 3.7% 15.9%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 3.7% 15.9%;
+    --input: 240 3.7% 15.9%;
+    --ring: 240 4.9% 83.9%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* Custom scrollbar for modern browsers */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-muted rounded-full;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-muted-foreground/20 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-muted-foreground/40;
+}
+
+/* Event type badges */
+.event-badge {
+  @apply inline-flex items-center rounded-md px-2 py-1 text-xs font-medium ring-1 ring-inset;
+}
+
+.event-badge-prompt {
+  @apply bg-blue-50 text-blue-700 ring-blue-600/20 dark:bg-blue-900/20 dark:text-blue-300 dark:ring-blue-500/30;
+}
+
+.event-badge-tool {
+  @apply bg-purple-50 text-purple-700 ring-purple-600/20 dark:bg-purple-900/20 dark:text-purple-300 dark:ring-purple-500/30;
+}
+
+.event-badge-response {
+  @apply bg-green-50 text-green-700 ring-green-600/20 dark:bg-green-900/20 dark:text-green-300 dark:ring-green-500/30;
+}
+
+.event-badge-session {
+  @apply bg-amber-50 text-amber-700 ring-amber-600/20 dark:bg-amber-900/20 dark:text-amber-300 dark:ring-amber-500/30;
+}
+
+.event-badge-system {
+  @apply bg-gray-50 text-gray-700 ring-gray-600/20 dark:bg-gray-900/20 dark:text-gray-300 dark:ring-gray-500/30;
+}
+
+.event-badge-error {
+  @apply bg-red-50 text-red-700 ring-red-600/20 dark:bg-red-900/20 dark:text-red-300 dark:ring-red-500/30;
+}
+
+/* Search result highlighting */
+.search-highlight {
+  @apply bg-yellow-200 dark:bg-yellow-800/50 rounded px-0.5;
+}
+
+/* Loading shimmer */
+.shimmer {
+  @apply animate-pulse bg-gradient-to-r from-muted via-muted-foreground/10 to-muted bg-[length:400%_100%];
+}
+
+/* Virtualized list container */
+.virtual-list-container {
+  @apply h-full overflow-auto;
+}
+
+/* Graph container */
+.graph-container {
+  @apply w-full h-full min-h-[400px] bg-muted/30 rounded-lg border;
+}
+
+/* Timeline styling */
+.timeline-line {
+  @apply absolute left-4 top-0 bottom-0 w-0.5 bg-border;
+}
+
+.timeline-dot {
+  @apply absolute left-3 w-3 h-3 rounded-full border-2 border-background bg-primary;
+}
+
+/* Inline markdown in summaries */
+.inline-markdown p {
+  @apply inline m-0;
+}
+
+.inline-markdown code {
+  @apply text-violet-300 bg-violet-950/50 px-1 py-0.5 rounded text-xs font-mono;
+}
+
+/* Prose overrides for dark mode */
+.prose-invert {
+  --tw-prose-body: hsl(var(--foreground));
+  --tw-prose-headings: hsl(var(--foreground));
+  --tw-prose-links: hsl(var(--primary));
+  --tw-prose-bold: hsl(var(--foreground));
+  --tw-prose-code: #c4b5fd;
+  --tw-prose-pre-bg: hsl(240 10% 8%);
+  --tw-prose-pre-code: hsl(var(--foreground));
+}
+
+.prose pre {
+  @apply overflow-x-auto text-xs;
+}
+
+.prose pre code {
+  @apply bg-transparent p-0;
+}
+
+/* Table styles for markdown */
+.prose table {
+  @apply w-full text-xs border-collapse my-2;
+}
+
+.prose thead {
+  @apply border-b border-border;
+}
+
+.prose th {
+  @apply px-2 py-1 text-left font-semibold text-muted-foreground bg-muted/50;
+}
+
+.prose td {
+  @apply px-2 py-1 border-b border-border/50;
+}
+
+.prose tbody tr:hover {
+  @apply bg-muted/30;
+}

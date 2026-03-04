@@ -1,0 +1,27 @@
+{
+  "name": "logging",
+  "version": "1.0.0",
+  "description": "Comprehensive logging, search, and visualization for Claude Code interactions",
+  "author": {
+    "name": "linuxiscool"
+  },
+  "keywords": ["logging", "observability", "search", "history", "visualization"],
+  "skills": ["./skills/"],
+  "commands": ["./commands/"],
+  "agents": ["./agents/archivist.md"],
+  "hooks": {
+    "SessionStart": [{"hooks": [{"type": "command", "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/log_event.py -e SessionStart"}]}],
+    "Setup": [{"hooks": [{"type": "command", "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/log_event.py -e Setup"}]}],
+    "SessionEnd": [{"hooks": [{"type": "command", "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/log_event.py -e SessionEnd"}]}],
+    "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/log_event.py -e UserPromptSubmit"}]}],
+    "SubagentStart": [{"hooks": [{"type": "command", "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/log_event.py -e SubagentStart"}]}],
+    "PreToolUse": [{"matcher": "", "hooks": [{"type": "command", "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/log_event.py -e PreToolUse"}]}],
+    "PostToolUse": [{"matcher": "", "hooks": [{"type": "command", "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/log_event.py -e PostToolUse"}]}],
+    "PostToolUseFailure": [{"matcher": "", "hooks": [{"type": "command", "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/log_event.py -e PostToolUseFailure"}]}],
+    "PermissionRequest": [{"hooks": [{"type": "command", "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/log_event.py -e PermissionRequest"}]}],
+    "Notification": [{"hooks": [{"type": "command", "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/log_event.py -e Notification"}]}],
+    "PreCompact": [{"hooks": [{"type": "command", "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/log_event.py -e PreCompact"}]}],
+    "Stop": [{"hooks": [{"type": "command", "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/log_event.py -e Stop"}]}],
+    "SubagentStop": [{"hooks": [{"type": "command", "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/log_event.py -e SubagentStop"}]}]
+  }
+}

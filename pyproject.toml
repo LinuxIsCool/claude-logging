@@ -1,0 +1,50 @@
+[project]
+name = "claude-logging-plugin"
+version = "1.0.0"
+description = "Comprehensive logging, search, and visualization for Claude Code"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    # Core
+    "fastapi>=0.104.0",
+    "uvicorn>=0.24.0",
+    "pydantic>=2.0.0",
+
+    # Storage (standard library sqlite3 is sufficient for FTS5)
+    # No additional dependencies for JSONL
+
+    # Optional: Embeddings (install with: pip install .[embeddings])
+    # sentence-transformers>=2.2.0
+    # numpy>=1.24.0
+]
+
+[project.optional-dependencies]
+embeddings = [
+    "sentence-transformers>=2.2.0",
+    "numpy>=1.24.0",
+]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "httpx>=0.25.0",
+]
+all = [
+    "claude-logging-plugin[embeddings,dev]",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["lib"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
