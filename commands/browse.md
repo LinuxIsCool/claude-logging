@@ -25,12 +25,13 @@ Shows a list of recent sessions with:
 
 ## Implementation
 
-List and display sessions from `.claude/local/logging/sessions/`:
+List and display sessions from `~/.claude/local/logging/<project>/sessions/`:
 
 ```bash
-# List recent sessions
-ls -lt .claude/local/logging/sessions/*.jsonl | head -10
+# List recent sessions (project path encoded with / -> -)
+PROJECT_ENCODED=$(echo "$CLAUDE_PROJECT_DIR" | tr '/' '-')
+ls -lt ~/.claude/local/logging/$PROJECT_ENCODED/sessions/*.jsonl | head -10
 
 # Get session summary
-head -1 .claude/local/logging/sessions/{id}.jsonl | jq -r '.data.cwd // "Unknown"'
+head -1 ~/.claude/local/logging/$PROJECT_ENCODED/sessions/{id}.jsonl | jq -r '.data.cwd // "Unknown"'
 ```

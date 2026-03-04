@@ -31,6 +31,6 @@ Search through your Claude Code conversation history.
 ## Implementation
 
 Use the Skill tool to invoke the log-search skill, which will:
-1. Search JSONL files in `.claude/local/logging/sessions/`
+1. Search JSONL files in `~/.claude/local/logging/<project>/sessions/`
 2. Present results with session context
 3. Offer follow-up actions

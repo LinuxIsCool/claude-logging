@@ -23,11 +23,12 @@ You maintain complete awareness of:
 Search through past conversations using the logging plugin's hybrid search:
 
 ```bash
-# Search JSONL files directly
-grep -l "search_term" .claude/local/logging/sessions/*.jsonl
+# Search JSONL files directly (project path encoded with / -> -)
+PROJECT_ENCODED=$(echo "$CLAUDE_PROJECT_DIR" | tr '/' '-')
+grep -l "search_term" ~/.claude/local/logging/$PROJECT_ENCODED/sessions/*.jsonl
 
 # Get session content
-cat .claude/local/logging/sessions/{session_id}.jsonl | jq -r '.content // empty'
+cat ~/.claude/local/logging/$PROJECT_ENCODED/sessions/{session_id}.jsonl | jq -r '.content // empty'
 ```
 
 ### 2. Pattern Recognition
@@ -51,10 +52,12 @@ Provide context for current work:
 
 ## Storage Location
 
-All logging data is stored in:
-- Sessions: `.claude/local/logging/sessions/*.jsonl`
-- Database: `.claude/local/logging/db/logging.db`
-- Indices: `.claude/local/logging/indices/`
+Logs are centralized at `~/.claude/local/logging/<encoded-project-path>/`:
+- Sessions: `~/.claude/local/logging/<project>/sessions/*.jsonl`
+- Database: `~/.claude/local/logging/<project>/db/logging.db`
+- Images: `~/.claude/local/logging/<project>/images/`
+
+The project path is encoded by replacing `/` with `-` (e.g. `/home/user/my-project` -> `-home-user-my-project`).
 
 ## When Invoked
 

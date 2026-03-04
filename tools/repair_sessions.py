@@ -14,6 +14,7 @@ Usage:
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from datetime import datetime, timezone
@@ -157,10 +158,11 @@ def main():
     if args.storage:
         storage_path = Path(args.storage)
     else:
-        # Try common locations
+        # Centralized storage path
+        project_dir = os.environ.get("CLAUDE_PROJECT_DIR", str(Path.cwd()))
+        encoded = project_dir.replace("/", "-")
         candidates = [
-            Path.cwd() / ".claude/local/logging",
-            Path.home() / ".claude/local/logging",
+            Path.home() / ".claude" / "local" / "logging" / encoded,
         ]
         storage_path = next((p for p in candidates if p.exists()), None)
 
