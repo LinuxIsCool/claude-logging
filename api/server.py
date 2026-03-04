@@ -25,10 +25,9 @@ from lib.search import SearchService
 
 
 # Configuration
-STORAGE_PATH = Path(os.environ.get(
-    "LOGGING_STORAGE_PATH",
-    os.path.join(os.environ.get("CLAUDE_PROJECT_DIR", os.getcwd()), ".claude/local/logging")
-))
+_project_dir = os.environ.get("CLAUDE_PROJECT_DIR", os.getcwd())
+_encoded = _project_dir.replace("/", "-")
+STORAGE_PATH = Path.home() / ".claude" / "local" / "logging" / _encoded
 
 # Initialize services
 storage = StorageManager(STORAGE_PATH)
