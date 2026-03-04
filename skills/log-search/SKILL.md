@@ -17,7 +17,7 @@ You are helping the user search their Claude Code conversation history.
 
 ## How to Search
 
-The logging plugin stores all Claude Code interactions in `.claude/local/logging/`.
+The logging plugin stores all Claude Code interactions centrally in `~/.claude/local/logging/<project>/` (under the home directory).
 
 ### Using the Search API
 
@@ -33,11 +33,12 @@ curl -X POST http://localhost:3001/api/search \
 If the API is not running, search JSONL files directly:
 
 ```bash
-# Find sessions containing a term
-grep -l "search_term" .claude/local/logging/sessions/*.jsonl
+# Find sessions containing a term (project path encoded with / -> -)
+PROJECT_ENCODED=$(echo "$CLAUDE_PROJECT_DIR" | tr '/' '-')
+grep -l "search_term" ~/.claude/local/logging/$PROJECT_ENCODED/sessions/*.jsonl
 
 # Search within a specific session
-grep "search_term" .claude/local/logging/sessions/{session_id}.jsonl
+grep "search_term" ~/.claude/local/logging/$PROJECT_ENCODED/sessions/{session_id}.jsonl
 ```
 
 ## Response Format
