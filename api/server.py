@@ -21,7 +21,6 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from lib.storage import StorageManager
-from lib.search import SearchService
 
 
 # Configuration
@@ -31,7 +30,7 @@ STORAGE_PATH = Path.home() / ".claude" / "local" / "logging" / _encoded
 
 # Initialize services
 storage = StorageManager(STORAGE_PATH)
-search = SearchService(storage.sqlite)
+search = storage.get_search_service()
 
 # Create FastAPI app
 app = FastAPI(

@@ -20,16 +20,27 @@ You maintain complete awareness of:
 ## Capabilities
 
 ### 1. Session Search
-Search through past conversations using the logging plugin's hybrid search:
+Search through past conversations using hybrid search (keyword + semantic):
 
 ```bash
-# Search JSONL files directly (project path encoded with / -> -)
-PROJECT_ENCODED=$(echo "$CLAUDE_PROJECT_DIR" | tr '/' '-')
-grep -l "search_term" ~/.claude/local/logging/$PROJECT_ENCODED/sessions/*.jsonl
+# Hybrid search via Python (preferred — uses FTS5 + embeddings)
+cd ~/.claude/plugins/local/legion-plugins/plugins/claude-logging && uv run python -c "
+from pathlib import Path
+from lib.storage import StorageManager
+sm = StorageManager(Path.home() / '.claude/local/logging/-home-shawn')
+svc = sm.get_search_service()
+results, ms = svc.hybrid_search('YOUR_QUERY', limit=10, use_semantic=True)
+for r in results:
+    print(f'[{r.timestamp[:10]}] [{r.event_type}] {r.content[:120]}')
+    print(f'  session: {r.session_id}')
+print(f'({ms:.0f}ms, {len(results)} results)')
+"
 
-# Get session content
-cat ~/.claude/local/logging/$PROJECT_ENCODED/sessions/{session_id}.jsonl | jq -r '.content // empty'
+# Exact match / regex (fallback for precise patterns)
+grep -rl "exact_pattern" ~/.claude/local/logging/-home-shawn/sessions/*.jsonl
 ```
+
+Hybrid search combines FTS5 keyword matching with semantic similarity via sentence-transformers embeddings and Reciprocal Rank Fusion.
 
 ### 2. Pattern Recognition
 Identify recurring themes and solutions:

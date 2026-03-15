@@ -869,6 +869,32 @@ def process_event(event_type: str, stdin_data: dict) -> dict:
         except Exception as e:
             log_error(e, f"SQLiteSync:{event_type}")
 
+    # Incremental embedding on turn boundaries (keeps semantic index fresh)
+    HIGH_VALUE_TYPES = ("UserPromptSubmit", "AssistantResponse", "Stop", "SubagentStop")
+    if event_type in HIGH_VALUE_TYPES and content:
+        try:
+            emb_db = storage_path / "db" / "embeddings.db"
+            if emb_db.exists():
+                plugin_root = str(Path(__file__).resolve().parent.parent)
+                if plugin_root not in sys.path:
+                    sys.path.insert(0, plugin_root)
+                from lib.embeddings import EmbeddingService, EmbeddingStorage
+                svc = EmbeddingService()
+                if svc.is_available:
+                    store = EmbeddingStorage(emb_db, dimension=svc.dimension)
+                    try:
+                        embedding = svc.encode([content])[0]
+                        store.store(event["id"], embedding, {
+                            "session_id": session_id,
+                            "event_type": event_type,
+                            "content": content,
+                            "timestamp": event["ts"],
+                        })
+                    finally:
+                        store.close()
+        except Exception as e:
+            log_error(e, f"Embedding:{event_type}")
+
     return event
 
 

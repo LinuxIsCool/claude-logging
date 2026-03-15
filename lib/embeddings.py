@@ -213,35 +213,38 @@ class EmbeddingStorage:
                 LIMIT ?
             """, (query_embedding, limit))
         else:
-            # Fallback: brute-force search
-            cursor = self.conn.execute("""
-                SELECT event_id, embedding FROM embeddings
-            """)
+            # Fallback: vectorized brute-force search (numpy)
+            try:
+                import numpy as np
+            except ImportError:
+                # numpy not available — return empty rather than crash
+                return []
 
-            results = []
-            for row in cursor:
-                event_id = row[0]
-                embedding = self._deserialize_embedding(row[1])
+            cursor = self.conn.execute("SELECT event_id, embedding FROM embeddings")
+            rows = cursor.fetchall()
+            if not rows:
+                return []
 
-                # Calculate cosine similarity
-                dot_product = sum(a * b for a, b in zip(query_embedding, embedding))
-                norm1 = sum(a * a for a in query_embedding) ** 0.5
-                norm2 = sum(b * b for b in embedding) ** 0.5
-                score = dot_product / (norm1 * norm2) if norm1 and norm2 else 0.0
+            all_ids = [r[0] for r in rows]
+            all_embeddings = np.array([self._deserialize_embedding(r[1]) for r in rows])
+            query_np = np.array(query_embedding)
 
-                results.append((event_id, score))
+            # Vectorized cosine similarity
+            norms = np.linalg.norm(all_embeddings, axis=1) * np.linalg.norm(query_np)
+            norms[norms == 0] = 1  # avoid division by zero
+            scores = all_embeddings @ query_np / norms
 
-            # Sort by similarity (descending)
-            results.sort(key=lambda x: -x[1])
-            results = results[:limit]
+            # Top-k by score
+            top_indices = np.argsort(-scores)[:limit]
+            top_ids = [all_ids[i] for i in top_indices]
+            top_scores = [float(scores[i]) for i in top_indices]
 
             # Fetch metadata for top results
             final_results = []
-            for event_id, score in results:
+            for event_id, score in zip(top_ids, top_scores):
                 meta_cursor = self.conn.execute("""
                     SELECT session_id, event_type, content, timestamp
-                    FROM embedding_metadata
-                    WHERE event_id = ?
+                    FROM embedding_metadata WHERE event_id = ?
                 """, (event_id,))
                 meta = meta_cursor.fetchone()
                 if meta:

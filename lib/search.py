@@ -44,6 +44,9 @@ class SearchService:
         date_to: Optional[str] = None
     ) -> List[SearchResult]:
         """FTS5 keyword search with BM25 ranking."""
+        if not query or not query.strip():
+            return []
+
         # Build query with filters
         sql = """
             SELECT

@@ -19,18 +19,35 @@ You are helping the user search their Claude Code conversation history.
 
 The logging plugin stores all Claude Code interactions centrally in `~/.claude/local/logging/<project>/` (under the home directory).
 
+### Preferred: Python SearchService (hybrid search)
+
+```bash
+cd ~/.claude/plugins/local/legion-plugins/plugins/claude-logging && uv run python -c "
+from pathlib import Path
+from lib.storage import StorageManager
+sm = StorageManager(Path.home() / '.claude/local/logging/-home-shawn')
+svc = sm.get_search_service()
+results, ms = svc.hybrid_search('USER_QUERY', limit=20, use_semantic=True)
+import json
+for r in results:
+    print(json.dumps({'ts': r.timestamp, 'type': r.event_type, 'content': r.content, 'session': r.session_id, 'source': r.source}))
+"
+```
+
+This uses FTS5 keyword search + semantic embeddings with Reciprocal Rank Fusion (RRF). Semantic search finds conceptually similar content even when keywords don't match.
+
 ### Using the Search API
 
 ```bash
-# Search for a term
+# Search for a term (with optional semantic)
 curl -X POST http://localhost:3001/api/search \
   -H "Content-Type: application/json" \
-  -d '{"query": "USER_QUERY", "limit": 20}'
+  -d '{"query": "USER_QUERY", "limit": 20, "use_semantic": true}'
 ```
 
-### Direct JSONL Search
+### Fallback: Direct JSONL Search
 
-If the API is not running, search JSONL files directly:
+If neither the Python SearchService nor the API is available, search JSONL files directly:
 
 ```bash
 # Find sessions containing a term (project path encoded with / -> -)
