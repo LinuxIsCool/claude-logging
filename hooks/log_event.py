@@ -857,6 +857,18 @@ def process_event(event_type: str, stdin_data: dict) -> dict:
         except Exception:
             pass  # Never fail on markdown generation
 
+    # Incremental SQLite sync on turn boundaries (keeps FTS5 index fresh)
+    if event_type in ("Stop", "SessionEnd", "SubagentStop"):
+        try:
+            plugin_root = str(Path(__file__).resolve().parent.parent)
+            if plugin_root not in sys.path:
+                sys.path.insert(0, plugin_root)
+            from lib.storage import StorageManager
+            sm = StorageManager(storage_path)
+            sm.sync_session(session_id)
+        except Exception as e:
+            log_error(e, f"SQLiteSync:{event_type}")
+
     return event
 
 

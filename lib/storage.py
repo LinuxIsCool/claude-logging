@@ -99,8 +99,10 @@ class SQLiteStorage:
     def __init__(self, db_path: Path):
         self.db_path = db_path
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(str(db_path))
+        self.conn = sqlite3.connect(str(db_path), timeout=10)
         self.conn.row_factory = sqlite3.Row
+        self.conn.execute("PRAGMA journal_mode=WAL")
+        self.conn.execute("PRAGMA busy_timeout=5000")
         self._init_schema()
 
     def _init_schema(self):
