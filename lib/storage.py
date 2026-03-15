@@ -439,6 +439,24 @@ class StorageManager:
         """Search across all events."""
         return self.sqlite.search(query, limit)
 
+    def get_search_service(self):
+        """Get a fully-configured SearchService with semantic search if available."""
+        from .search import SearchService
+        emb_svc = None
+        emb_store = None
+        try:
+            from .embeddings import EmbeddingService, EmbeddingStorage
+            emb_db = self.base_path / "db" / "embeddings.db"
+            if emb_db.exists():
+                emb_svc = EmbeddingService()
+                if emb_svc.is_available:
+                    emb_store = EmbeddingStorage(emb_db, dimension=emb_svc.dimension)
+                else:
+                    emb_svc = None
+        except Exception:
+            pass
+        return SearchService(self.sqlite, embedding_service=emb_svc, embedding_storage=emb_store)
+
     def close(self):
         """Close all connections."""
         self.sqlite.close()

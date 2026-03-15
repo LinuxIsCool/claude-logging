@@ -28,8 +28,11 @@ class SearchResult:
 class SearchService:
     """Hybrid search service combining keyword and semantic search."""
 
-    def __init__(self, sqlite: SQLiteStorage, embedding_service=None):
+    def __init__(self, sqlite: SQLiteStorage, embedding_service=None, embedding_storage=None):
         self.sqlite = sqlite
+        self.embedding_service = embedding_service
+        self.embedding_storage = embedding_storage
+        # Backward compat: if a single object has both encode+search, use it
         self.embeddings = embedding_service
 
     def keyword_search(
@@ -98,19 +101,24 @@ class SearchService:
         Semantic search using embeddings.
         Falls back to empty results if embeddings not available.
         """
-        if self.embeddings is None:
-            return []
-
-        # Get query embedding
-        query_embedding = self.embeddings.encode([query])[0]
-
-        # Search similar embeddings
-        # This would use sqlite-vec in production
-        results = self.embeddings.search(
-            query_embedding,
-            limit=limit,
-            filters={"event_types": event_types} if event_types else None
-        )
+        # Need both an encoder and a storage backend
+        if self.embedding_service is None or self.embedding_storage is None:
+            # Backward compat: single object with encode+search
+            if self.embeddings is not None and hasattr(self.embeddings, 'search'):
+                query_embedding = self.embeddings.encode([query])[0]
+                results = self.embeddings.search(
+                    query_embedding, limit=limit,
+                    filters={"event_types": event_types} if event_types else None
+                )
+            else:
+                return []
+        else:
+            # Standard path: separate encoder + storage
+            query_embedding = self.embedding_service.encode([query])[0]
+            results = self.embedding_storage.search(
+                query_embedding, limit=limit,
+                filters={"event_types": event_types} if event_types else None
+            )
 
         return [
             SearchResult(
