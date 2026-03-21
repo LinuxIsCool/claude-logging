@@ -103,6 +103,7 @@ export function SessionList() {
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [matchingSessionIds, setMatchingSessionIds] = useState<Set<string>>(new Set());
+  const [semanticActive, setSemanticActive] = useState(false);
 
   // Session state
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -149,6 +150,7 @@ export function SessionList() {
       });
 
       setSearchResults(response.results);
+      setSemanticActive(response.semantic_active);
       // Extract unique session IDs from results
       const sessionIds = new Set(response.results.map((r) => r.session_id));
       setMatchingSessionIds(sessionIds);
@@ -317,9 +319,16 @@ export function SessionList() {
 
       {/* Search Results Summary */}
       {query.trim() && searchResults.length > 0 && (
-        <div className="text-sm text-muted-foreground">
-          Found {searchResults.length} matches in {matchingSessionIds.size} session
-          {matchingSessionIds.size !== 1 ? "s" : ""}
+        <div className="text-sm text-muted-foreground flex items-center gap-2">
+          <span>
+            Found {searchResults.length} matches in {matchingSessionIds.size} session
+            {matchingSessionIds.size !== 1 ? "s" : ""}
+          </span>
+          {semanticActive && (
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">
+              ✦ semantic
+            </span>
+          )}
         </div>
       )}
 

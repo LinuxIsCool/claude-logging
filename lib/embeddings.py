@@ -7,7 +7,6 @@ Falls back gracefully when not installed.
 
 from typing import List, Optional, Dict, Any
 from pathlib import Path
-import json
 import struct
 
 
@@ -141,6 +140,10 @@ class EmbeddingStorage:
             )
         """)
 
+        # Indexes for filtered search
+        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_emb_meta_event_type ON embedding_metadata(event_type)")
+        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_emb_meta_timestamp ON embedding_metadata(timestamp)")
+
         self.conn.commit()
 
     def _serialize_embedding(self, embedding: List[float]) -> bytes:
@@ -185,6 +188,31 @@ class EmbeddingStorage:
 
         self.conn.commit()
 
+    def _build_filter_ids(self, filters: Optional[Dict[str, Any]]) -> Optional[set]:
+        """Build set of event_ids matching filters, or None if no filters."""
+        if not filters:
+            return None
+        has_filter = filters.get("event_types") or filters.get("date_from") or filters.get("date_to")
+        if not has_filter:
+            return None
+
+        conditions, params = ["1=1"], []
+        if filters.get("event_types"):
+            placeholders = ",".join("?" * len(filters["event_types"]))
+            conditions.append(f"event_type IN ({placeholders})")
+            params.extend(filters["event_types"])
+        if filters.get("date_from"):
+            conditions.append("timestamp >= ?")
+            params.append(filters["date_from"])
+        if filters.get("date_to"):
+            conditions.append("timestamp <= ?")
+            params.append(filters["date_to"])
+
+        cursor = self.conn.execute(
+            f"SELECT event_id FROM embedding_metadata WHERE {' AND '.join(conditions)}", params
+        )
+        return {row[0] for row in cursor}
+
     def search(
         self,
         query_embedding: List[float],
@@ -195,9 +223,16 @@ class EmbeddingStorage:
         Search for similar embeddings.
 
         Returns list of dicts with event_id, score, and metadata.
+        Supports filters: event_types (list), date_from (str), date_to (str).
         """
+        filter_ids = self._build_filter_ids(filters)
+        if filter_ids is not None and not filter_ids:
+            return []  # Filters matched nothing
+
         if self._has_vec:
-            # Use sqlite-vec for fast vector search
+            # sqlite-vec MATCH doesn't support arbitrary WHERE on joins,
+            # so over-fetch 3x and post-filter
+            fetch_limit = limit * 3 if filter_ids is not None else limit
             cursor = self.conn.execute(f"""
                 SELECT
                     e.event_id,
@@ -211,19 +246,40 @@ class EmbeddingStorage:
                 WHERE embedding MATCH ?
                 ORDER BY distance
                 LIMIT ?
-            """, (query_embedding, limit))
+            """, (query_embedding, fetch_limit))
+
+            results = []
+            for row in cursor:
+                if filter_ids is not None and row[0] not in filter_ids:
+                    continue
+                results.append({
+                    "event_id": row[0],
+                    "score": 1 - row[1],  # Convert distance to similarity
+                    "session_id": row[2],
+                    "event_type": row[3],
+                    "content": row[4],
+                    "timestamp": row[5],
+                })
+                if len(results) >= limit:
+                    break
+            return results
         else:
             # Fallback: vectorized brute-force search (numpy)
             try:
                 import numpy as np
             except ImportError:
-                # numpy not available — return empty rather than crash
                 return []
 
             cursor = self.conn.execute("SELECT event_id, embedding FROM embeddings")
             rows = cursor.fetchall()
             if not rows:
                 return []
+
+            # Pre-filter by metadata before deserializing embeddings
+            if filter_ids is not None:
+                rows = [r for r in rows if r[0] in filter_ids]
+                if not rows:
+                    return []
 
             all_ids = [r[0] for r in rows]
             all_embeddings = np.array([self._deserialize_embedding(r[1]) for r in rows])
@@ -259,17 +315,50 @@ class EmbeddingStorage:
 
             return final_results
 
-        return [
-            {
-                "event_id": row[0],
-                "score": 1 - row[1],  # Convert distance to similarity
-                "session_id": row[2],
-                "event_type": row[3],
-                "content": row[4],
-                "timestamp": row[5],
-            }
-            for row in cursor
-        ]
+    def store_batch(self, items: List[Dict[str, Any]]) -> int:
+        """Store multiple embeddings in a single transaction.
+
+        Each item must have: event_id, embedding, metadata (dict with
+        session_id, event_type, content, timestamp).
+        Returns count of items stored.
+        """
+        count = 0
+        try:
+            for item in items:
+                event_id = item["event_id"]
+                embedding = item["embedding"]
+                metadata = item["metadata"]
+
+                if self._has_vec:
+                    self.conn.execute(
+                        "INSERT OR REPLACE INTO embeddings (event_id, embedding) VALUES (?, ?)",
+                        (event_id, embedding)
+                    )
+                else:
+                    blob = self._serialize_embedding(embedding)
+                    self.conn.execute(
+                        "INSERT OR REPLACE INTO embeddings (event_id, embedding) VALUES (?, ?)",
+                        (event_id, blob)
+                    )
+
+                self.conn.execute("""
+                    INSERT OR REPLACE INTO embedding_metadata
+                    (event_id, session_id, event_type, content, timestamp)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (
+                    event_id,
+                    metadata.get("session_id", ""),
+                    metadata.get("event_type", ""),
+                    metadata.get("content", ""),
+                    metadata.get("timestamp", ""),
+                ))
+                count += 1
+
+            self.conn.commit()
+        except Exception:
+            self.conn.rollback()
+            raise
+        return count
 
     def close(self):
         """Close database connection."""

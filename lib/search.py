@@ -7,7 +7,6 @@ using Reciprocal Rank Fusion (RRF) to merge results.
 
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
-from pathlib import Path
 import time
 
 from .storage import SQLiteStorage
@@ -98,20 +97,32 @@ class SearchService:
         self,
         query: str,
         limit: int = 20,
-        event_types: Optional[List[str]] = None
+        event_types: Optional[List[str]] = None,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None
     ) -> List[SearchResult]:
         """
         Semantic search using embeddings.
         Falls back to empty results if embeddings not available.
         """
+        # Build unified filters dict
+        filters = {}
+        if event_types:
+            filters["event_types"] = event_types
+        if date_from:
+            filters["date_from"] = date_from
+        if date_to:
+            filters["date_to"] = date_to
+
+        search_filters = filters if filters else None
+
         # Need both an encoder and a storage backend
         if self.embedding_service is None or self.embedding_storage is None:
             # Backward compat: single object with encode+search
             if self.embeddings is not None and hasattr(self.embeddings, 'search'):
                 query_embedding = self.embeddings.encode([query])[0]
                 results = self.embeddings.search(
-                    query_embedding, limit=limit,
-                    filters={"event_types": event_types} if event_types else None
+                    query_embedding, limit=limit, filters=search_filters
                 )
             else:
                 return []
@@ -119,8 +130,7 @@ class SearchService:
             # Standard path: separate encoder + storage
             query_embedding = self.embedding_service.encode([query])[0]
             results = self.embedding_storage.search(
-                query_embedding, limit=limit,
-                filters={"event_types": event_types} if event_types else None
+                query_embedding, limit=limit, filters=search_filters
             )
 
         return [
@@ -214,7 +224,9 @@ class SearchService:
             semantic_results = self.semantic_search(
                 query,
                 limit=limit * 2,
-                event_types=event_types
+                event_types=event_types,
+                date_from=date_from,
+                date_to=date_to
             )
 
         # Fuse results

@@ -12,6 +12,7 @@ export interface SearchResponse {
   results: SearchResult[];
   total: number;
   time_ms: number;
+  semantic_active: boolean;
 }
 
 export interface Session {

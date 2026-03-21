@@ -30,7 +30,24 @@ STORAGE_PATH = Path.home() / ".claude" / "local" / "logging" / _encoded
 
 # Initialize services
 storage = StorageManager(STORAGE_PATH)
-search = storage.get_search_service()
+
+# Lazy-refresh search service — re-checks for embeddings.db if not found initially
+_search_service = None
+_search_has_semantic = False
+
+
+def get_search():
+    """Get search service, refreshing if semantic became available."""
+    global _search_service, _search_has_semantic
+    if _search_service is None:
+        _search_service = storage.get_search_service()
+        _search_has_semantic = _search_service.embedding_storage is not None
+        return _search_service
+    # Re-check if semantic wasn't available before (embeddings.db may have appeared)
+    if not _search_has_semantic:
+        _search_service = storage.get_search_service()
+        _search_has_semantic = _search_service.embedding_storage is not None
+    return _search_service
 
 # Create FastAPI app
 app = FastAPI(
@@ -73,6 +90,7 @@ class SearchResponse(BaseModel):
     results: List[SearchResultItem]
     total: int
     time_ms: float
+    semantic_active: bool = False
 
 
 class SessionSummary(BaseModel):
@@ -112,7 +130,8 @@ async def search_logs(request: SearchRequest):
         storage.sync_all()
 
         # Perform search
-        results, time_ms = search.hybrid_search(
+        svc = get_search()
+        results, time_ms = svc.hybrid_search(
             query=request.query,
             limit=request.limit,
             event_types=request.event_types,
@@ -135,7 +154,8 @@ async def search_logs(request: SearchRequest):
                 for r in results
             ],
             total=len(results),
-            time_ms=time_ms
+            time_ms=time_ms,
+            semantic_active=svc.embedding_storage is not None
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

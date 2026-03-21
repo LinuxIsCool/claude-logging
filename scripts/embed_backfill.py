@@ -108,8 +108,11 @@ def backfill(all_types: bool = False, batch_size: int = 256):
 
         if len(batch_texts) >= batch_size:
             embeddings = emb_service.encode(batch_texts)
-            for emb, meta in zip(embeddings, batch_meta):
-                emb_storage.store(meta["event_id"], emb, meta)
+            batch_items = [
+                {"event_id": m["event_id"], "embedding": e, "metadata": m}
+                for e, m in zip(embeddings, batch_meta)
+            ]
+            emb_storage.store_batch(batch_items)
             total_embedded += len(batch_texts)
             elapsed = time.perf_counter() - t_start
             rate = total_embedded / elapsed if elapsed > 0 else 0
@@ -120,8 +123,11 @@ def backfill(all_types: bool = False, batch_size: int = 256):
     # Final batch
     if batch_texts:
         embeddings = emb_service.encode(batch_texts)
-        for emb, meta in zip(embeddings, batch_meta):
-            emb_storage.store(meta["event_id"], emb, meta)
+        batch_items = [
+            {"event_id": m["event_id"], "embedding": e, "metadata": m}
+            for e, m in zip(embeddings, batch_meta)
+        ]
+        emb_storage.store_batch(batch_items)
         total_embedded += len(batch_texts)
 
     elapsed = time.perf_counter() - t_start
