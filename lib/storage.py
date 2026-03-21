@@ -170,6 +170,37 @@ class SQLiteStorage:
                 summary TEXT,
                 tags JSON DEFAULT '[]'
             );
+
+            -- Session entity staging (Phase 2: session knowledge capture)
+            CREATE TABLE IF NOT EXISTS session_entities (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                entity_name TEXT NOT NULL,
+                entity_type TEXT DEFAULT 'unknown',
+                mention_count INTEGER DEFAULT 1,
+                first_seen TIMESTAMP NOT NULL,
+                context TEXT,
+                UNIQUE(session_id, entity_name)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_session_entities_session
+            ON session_entities(session_id);
+
+            CREATE INDEX IF NOT EXISTS idx_session_entities_name
+            ON session_entities(entity_name);
+
+            CREATE INDEX IF NOT EXISTS idx_session_entities_type
+            ON session_entities(entity_type);
+
+            -- Session summaries (Phase 2: PostCompact → summary → KOI)
+            CREATE TABLE IF NOT EXISTS session_summaries (
+                session_id TEXT PRIMARY KEY,
+                summary TEXT NOT NULL,
+                source TEXT DEFAULT 'compact',
+                entities_extracted INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (session_id) REFERENCES sessions(id)
+            );
         """)
         self.conn.commit()
 
@@ -455,8 +486,11 @@ class StorageManager:
                     emb_svc = None
         except Exception:
             pass
+        self._embedding_storage = emb_store
         return SearchService(self.sqlite, embedding_service=emb_svc, embedding_storage=emb_store)
 
     def close(self):
         """Close all connections."""
+        if hasattr(self, '_embedding_storage') and self._embedding_storage:
+            self._embedding_storage.close()
         self.sqlite.close()

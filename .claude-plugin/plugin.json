@@ -21,6 +21,7 @@
     "PermissionRequest": [{"hooks": [{"type": "command", "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/log_event.py -e PermissionRequest"}]}],
     "Notification": [{"hooks": [{"type": "command", "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/log_event.py -e Notification"}]}],
     "PreCompact": [{"hooks": [{"type": "command", "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/log_event.py -e PreCompact"}]}],
+    "PostCompact": [{"hooks": [{"type": "command", "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/log_event.py -e PostCompact"}]}],
     "Stop": [{"hooks": [{"type": "command", "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/log_event.py -e Stop"}]}],
     "SubagentStop": [{"hooks": [{"type": "command", "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/log_event.py -e SubagentStop"}]}]
   }

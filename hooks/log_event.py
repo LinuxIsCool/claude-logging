@@ -32,10 +32,57 @@ EMOJIS = {
     "PostToolUse": "🏰",
     "Notification": "🟡",
     "PreCompact": "♻️",
+    "PostCompact": "📦",
     "Stop": "🟢",
     "SubagentStop": "🔵",
     "AssistantResponse": "🌲",
 }
+
+# Health monitoring constants
+HEALTH_DIR = Path.home() / ".claude" / "local" / "health"
+HEARTBEAT_NAMES = ("logging", "embedding", "hippo", "dreams", "rhythm")
+# Max age in seconds before a heartbeat is considered stale
+HEARTBEAT_MAX_AGE_SECONDS = 86400  # 24 hours
+
+
+def write_heartbeat(name: str) -> None:
+    """Write a heartbeat file to signal pipeline health.
+
+    Each pipeline touches its heartbeat file on successful operation.
+    Monitors check mtime to detect silent failures.
+    """
+    try:
+        HEALTH_DIR.mkdir(parents=True, exist_ok=True)
+        heartbeat_path = HEALTH_DIR / f"{name}-heartbeat"
+        heartbeat_path.write_text(
+            f"{datetime.now(timezone.utc).isoformat()}\n"
+        )
+    except Exception:
+        pass  # Never fail on heartbeat write
+
+
+def check_stale_heartbeats() -> list:
+    """Check all heartbeat files for staleness.
+
+    Returns list of (name, age_hours) for stale heartbeats.
+    A heartbeat is stale if its mtime exceeds HEARTBEAT_MAX_AGE_SECONDS
+    relative to now, AND it has ever been written (missing = not yet active).
+    """
+    stale = []
+    try:
+        if not HEALTH_DIR.exists():
+            return stale
+        now = datetime.now(timezone.utc).timestamp()
+        for name in HEARTBEAT_NAMES:
+            hb_path = HEALTH_DIR / f"{name}-heartbeat"
+            if hb_path.exists():
+                age_seconds = now - hb_path.stat().st_mtime
+                if age_seconds > HEARTBEAT_MAX_AGE_SECONDS:
+                    age_hours = round(age_seconds / 3600, 1)
+                    stale.append((name, age_hours))
+    except Exception:
+        pass
+    return stale
 
 
 def encode_project_path(project_dir: str) -> str:
@@ -321,6 +368,15 @@ def extract_content(event_type: str, data: dict) -> Optional[str]:
 
     elif event_type == "PreCompact":
         return "Context compaction starting"
+
+    elif event_type == "PostCompact":
+        summary = data.get("summary", "")
+        stats = data.get("stats", {})
+        if summary:
+            return f"Context compacted: {summary}"
+        elif stats:
+            return f"Context compacted: {json.dumps(stats)}"
+        return "Context compaction completed"
 
     elif event_type == "Notification":
         return data.get("message", "Notification")
@@ -746,8 +802,8 @@ def generate_markdown(jsonl_path: Path, md_path: Path, session_id: str) -> None:
             else:
                 lines.append(sa_label)
 
-        elif t in ("SessionStart", "SessionEnd", "Notification", "PreCompact"):
-            info = d.get("source") or d.get("message") or ""
+        elif t in ("SessionStart", "SessionEnd", "Notification", "PreCompact", "PostCompact"):
+            info = d.get("source") or d.get("message") or d.get("summary") or ""
             emoji = EMOJIS.get(t, "•")
             lines.append(f"`{ts}` {emoji} {t} {info}".rstrip())
 
@@ -851,6 +907,7 @@ def process_event(event_type: str, stdin_data: dict) -> dict:
         "SessionEnd",
         "SubagentStop",
         "Notification",
+        "PostCompact",
     ):
         try:
             generate_markdown(session_path, md_path, session_id)
@@ -858,16 +915,37 @@ def process_event(event_type: str, stdin_data: dict) -> dict:
             pass  # Never fail on markdown generation
 
     # Incremental SQLite sync on turn boundaries (keeps FTS5 index fresh)
-    if event_type in ("Stop", "SessionEnd", "SubagentStop"):
+    if event_type in ("Stop", "SessionEnd", "SubagentStop", "PostCompact"):
         try:
             plugin_root = str(Path(__file__).resolve().parent.parent)
             if plugin_root not in sys.path:
                 sys.path.insert(0, plugin_root)
             from lib.storage import StorageManager
             sm = StorageManager(storage_path)
-            sm.sync_session(session_id)
+            try:
+                sm.sync_session(session_id)
+            finally:
+                sm.close()
+            # Heartbeat: logging pipeline is healthy
+            write_heartbeat("logging")
         except Exception as e:
             log_error(e, f"SQLiteSync:{event_type}")
+
+    # PostCompact: capture session summary and extract entities
+    if event_type == "PostCompact" and isinstance(data, dict):
+        summary = data.get("summary", "")
+        if summary:
+            try:
+                plugin_root = str(Path(__file__).resolve().parent.parent)
+                if plugin_root not in sys.path:
+                    sys.path.insert(0, plugin_root)
+                from lib.session_capture import process_postcompact_summary
+                db_path = storage_path / "db" / "logging.db"
+                process_postcompact_summary(
+                    db_path, session_id, summary
+                )
+            except Exception as e:
+                log_error(e, "PostCompactCapture")
 
     # Incremental embedding on turn boundaries (keeps semantic index fresh)
     HIGH_VALUE_TYPES = ("UserPromptSubmit", "AssistantResponse", "Stop", "SubagentStop")
@@ -890,6 +968,8 @@ def process_event(event_type: str, stdin_data: dict) -> dict:
                             "content": content,
                             "timestamp": event["ts"],
                         })
+                        # Heartbeat: embedding pipeline is healthy
+                        write_heartbeat("embedding")
                     finally:
                         store.close()
         except Exception as e:
@@ -925,7 +1005,18 @@ def main():
         # Process and store the event
         process_event(args.event, stdin_data)
 
-        # Silent success - don't print anything to stdout/stderr
+        # On SessionEnd: check for stale heartbeats and warn
+        if args.event == "SessionEnd":
+            stale = check_stale_heartbeats()
+            if stale:
+                warnings = ", ".join(
+                    f"{name} ({age_h}h stale)" for name, age_h in stale
+                )
+                # Output JSON hook response with warning
+                result = {
+                    "systemMessage": f"[health] Stale pipelines: {warnings}"
+                }
+                print(json.dumps(result))
 
     except Exception as e:
         # Silent failure - log to file but never crash
