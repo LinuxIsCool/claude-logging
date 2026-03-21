@@ -40,7 +40,7 @@ EMOJIS = {
 
 # Health monitoring constants
 HEALTH_DIR = Path.home() / ".claude" / "local" / "health"
-HEARTBEAT_NAMES = ("logging", "embedding", "hippo", "dreams", "rhythm")
+HEARTBEAT_NAMES = ("logging", "embedding", "hippo", "dreams", "rhythm", "koi", "journal")
 # Max age in seconds before a heartbeat is considered stale
 HEARTBEAT_MAX_AGE_SECONDS = 86400  # 24 hours
 

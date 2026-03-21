@@ -121,6 +121,28 @@ class TestCheckStaleHeartbeats:
             assert "embedding" in stale_names
             assert "logging" not in stale_names
 
+    def test_new_heartbeat_names_recognized(self, tmp_path):
+        """Verify koi and journal are in HEARTBEAT_NAMES after task-047 update."""
+        assert "koi" in HEARTBEAT_MAX_AGE_SECONDS.__class__.__module__ or True
+        # Direct check on the constant
+        assert "koi" in log_event_mod.HEARTBEAT_NAMES
+        assert "journal" in log_event_mod.HEARTBEAT_NAMES
+
+    def test_koi_and_journal_stale_detection(self, tmp_path):
+        """Verify stale detection works for newly added koi and journal pipelines."""
+        with patch.object(log_event_mod, "HEALTH_DIR", tmp_path):
+            # Write stale koi heartbeat
+            hb = tmp_path / "koi-heartbeat"
+            hb.write_text("old\n")
+            os.utime(hb, (time.time() - 48 * 3600, time.time() - 48 * 3600))
+            # Write fresh journal heartbeat
+            write_heartbeat("journal")
+
+            stale = check_stale_heartbeats()
+            stale_names = [s[0] for s in stale]
+            assert "koi" in stale_names
+            assert "journal" not in stale_names
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
