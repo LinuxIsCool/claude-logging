@@ -656,6 +656,135 @@ def get_subagent_info(transcript_path: str) -> Dict[str, Any]:
         return {"model": "", "tools": [], "response": ""}
 
 
+def extract_subagent_transcript(transcript_path: str) -> Dict[str, Any]:
+    """Extract full content and metadata from a subagent transcript JSONL file.
+
+    Reads the subagent's native transcript and extracts:
+    - All assistant text responses (concatenated for FTS/embedding indexing)
+    - The initial user prompt (what the subagent was asked to do)
+    - Model, tools used, token counts, turn count, timestamps
+
+    Returns a dict with keys: content, first_prompt, model, tools, tool_names,
+    turn_count, token_usage, timestamps. On any error, returns safe defaults.
+    """
+    empty = {
+        "content": "",
+        "first_prompt": "",
+        "model": "",
+        "tools": [],
+        "tool_names": [],
+        "turn_count": 0,
+        "token_usage": {},
+        "timestamps": {},
+    }
+    try:
+        path = Path(transcript_path)
+        if not path.exists():
+            return empty
+
+        text = path.read_text().strip()
+        if not text:
+            return empty
+
+        model = ""
+        tools = []
+        tool_names = []
+        responses = []
+        first_prompt = ""
+        turn_count = 0
+        first_ts = ""
+        last_ts = ""
+        token_usage = {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+        }
+
+        for line in text.split("\n"):
+            if not line.strip():
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue  # Skip corrupt lines, preserve valid ones
+
+            # Track timestamps
+            ts = entry.get("timestamp", "")
+            if ts and not first_ts:
+                first_ts = ts
+            if ts:
+                last_ts = ts
+
+            entry_type = entry.get("type", "")
+            message = entry.get("message", {})
+
+            # First user entry → first_prompt
+            if entry_type == "user" and not first_prompt:
+                msg_content = message.get("content", "")
+                if isinstance(msg_content, str):
+                    first_prompt = msg_content
+                elif isinstance(msg_content, list):
+                    text_parts = [
+                        b.get("text", "") for b in msg_content
+                        if isinstance(b, dict) and b.get("type") == "text"
+                    ]
+                    first_prompt = "\n".join(text_parts)
+
+            # Assistant entries → content, tools, model, tokens
+            if entry_type == "assistant":
+                turn_count += 1
+
+                # Model detection (first assistant entry)
+                if not model:
+                    m = message.get("model", "")
+                    if "opus" in m:
+                        model = "opus"
+                    elif "sonnet" in m:
+                        model = "sonnet"
+                    elif "haiku" in m:
+                        model = "haiku"
+
+                # Token usage aggregation
+                usage = message.get("usage", {})
+                for key in token_usage:
+                    token_usage[key] += usage.get(key, 0)
+
+                # Content blocks → text and tools
+                for block in message.get("content", []):
+                    if not isinstance(block, dict):
+                        continue
+
+                    if block.get("type") == "text":
+                        t = block.get("text", "").strip()
+                        if t:
+                            responses.append(t)
+
+                    elif block.get("type") == "tool_use":
+                        name = block.get("name", "?")
+                        tool_names.append(name)
+                        inp = block.get("input", {})
+                        preview = ""
+                        for k in ("file_path", "pattern", "query", "command"):
+                            if k in inp:
+                                preview = str(inp[k])[:60]
+                                break
+                        tools.append(f"- {name} `{preview}`" if preview else f"- {name}")
+
+        return {
+            "content": "\n\n".join(responses),
+            "first_prompt": first_prompt,
+            "model": model,
+            "tools": tools,
+            "tool_names": tool_names,
+            "turn_count": turn_count,
+            "token_usage": token_usage,
+            "timestamps": {"start": first_ts, "end": last_ts},
+        }
+    except Exception:
+        return empty
+
+
 def generate_markdown(jsonl_path: Path, md_path: Path, session_id: str) -> None:
     """Generate human-readable markdown report from JSONL source."""
     try:
@@ -728,10 +857,21 @@ def generate_markdown(jsonl_path: Path, md_path: Path, session_id: str) -> None:
                             tool_details.append(f"  > {line}")
 
         elif t == "SubagentStop" and prompt is not None:
-            # Collect subagent info for this exchange
+            # Collect subagent info — prefer enriched transcript_summary, fall back to file read
             agent_id = d.get("agent_id", "?")
-            transcript = d.get("agent_transcript_path", "")
-            info = get_subagent_info(transcript) if transcript else {}
+            summary = d.get("transcript_summary")
+            if summary:
+                info = {
+                    "model": summary.get("model", ""),
+                    "tools": summary.get("tools", []),
+                    "response": e.get("content", ""),
+                    "turn_count": summary.get("turn_count", 0),
+                    "token_usage": summary.get("token_usage", {}),
+                    "first_prompt": summary.get("first_prompt", ""),
+                }
+            else:
+                transcript = d.get("agent_transcript_path", "")
+                info = get_subagent_info(transcript) if transcript else {}
             subagents.append({"ts": ts, "id": agent_id, **info})
 
         elif t == "AssistantResponse":
@@ -755,16 +895,30 @@ def generate_markdown(jsonl_path: Path, md_path: Path, session_id: str) -> None:
                 if subagents:
                     for sa in subagents:
                         model_tag = f" ({sa['model']})" if sa.get("model") else ""
-                        sa_label = f"`{sa['ts']}` 🔵 Subagent {sa['id']}{model_tag}"
+                        # Build enriched header with turn count and token usage
+                        meta_parts = []
+                        if sa.get("turn_count"):
+                            meta_parts.append(f"{sa['turn_count']} turns")
+                        tok = sa.get("token_usage", {})
+                        total_tokens = tok.get("input_tokens", 0) + tok.get("output_tokens", 0)
+                        if total_tokens:
+                            if total_tokens >= 1000:
+                                meta_parts.append(f"{total_tokens / 1000:.1f}K tokens")
+                            else:
+                                meta_parts.append(f"{total_tokens} tokens")
+                        meta_str = f" — {', '.join(meta_parts)}" if meta_parts else ""
+                        sa_label = f"`{sa['ts']}` 🔵 Subagent {sa['id']}{model_tag}{meta_str}"
 
                         if sa.get("tools") or sa.get("response"):
                             lines.extend(["<details>", f"<summary>{sa_label}</summary>", ""])
+                            if sa.get("first_prompt"):
+                                lines.extend([f"**Prompt:** {sa['first_prompt'][:200]}", ""])
                             if sa.get("tools"):
                                 lines.append(f"**Tools:** {len(sa['tools'])}")
                                 lines.extend(sa["tools"])
                                 lines.append("")
                             if sa.get("response"):
-                                lines.extend(["**Response:**", quote(sa["response"][:500]), ""])
+                                lines.extend(["**Response:**", quote(sa["response"]), ""])
                             lines.extend(["</details>", ""])
                         else:
                             lines.append(sa_label)
@@ -783,21 +937,46 @@ def generate_markdown(jsonl_path: Path, md_path: Path, session_id: str) -> None:
             ])
 
         elif t == "SubagentStop" and prompt is None:
-            # Subagent outside of an exchange
+            # Subagent outside of an exchange — use enriched data if available
             agent_id = d.get("agent_id", "?")
-            transcript = d.get("agent_transcript_path", "")
-            info = get_subagent_info(transcript) if transcript else {}
+            summary = d.get("transcript_summary")
+            if summary:
+                info = {
+                    "model": summary.get("model", ""),
+                    "tools": summary.get("tools", []),
+                    "response": e.get("content", ""),
+                    "turn_count": summary.get("turn_count", 0),
+                    "token_usage": summary.get("token_usage", {}),
+                    "first_prompt": summary.get("first_prompt", ""),
+                }
+            else:
+                transcript = d.get("agent_transcript_path", "")
+                info = get_subagent_info(transcript) if transcript else {}
+
             model_tag = f" ({info['model']})" if info.get("model") else ""
-            sa_label = f"`{ts}` 🔵 Subagent {agent_id}{model_tag}"
+            meta_parts = []
+            if info.get("turn_count"):
+                meta_parts.append(f"{info['turn_count']} turns")
+            tok = info.get("token_usage", {})
+            total_tokens = tok.get("input_tokens", 0) + tok.get("output_tokens", 0)
+            if total_tokens:
+                if total_tokens >= 1000:
+                    meta_parts.append(f"{total_tokens / 1000:.1f}K tokens")
+                else:
+                    meta_parts.append(f"{total_tokens} tokens")
+            meta_str = f" — {', '.join(meta_parts)}" if meta_parts else ""
+            sa_label = f"`{ts}` 🔵 Subagent {agent_id}{model_tag}{meta_str}"
 
             if info.get("tools") or info.get("response"):
                 lines.extend(["<details>", f"<summary>{sa_label}</summary>", ""])
+                if info.get("first_prompt"):
+                    lines.extend([f"**Prompt:** {info['first_prompt'][:200]}", ""])
                 if info.get("tools"):
                     lines.append(f"**Tools:** {len(info['tools'])}")
                     lines.extend(info["tools"])
                     lines.append("")
                 if info.get("response"):
-                    lines.extend(["**Response:**", quote(info["response"][:500]), ""])
+                    lines.extend(["**Response:**", quote(info["response"]), ""])
                 lines.extend(["</details>", ""])
             else:
                 lines.append(sa_label)
@@ -857,6 +1036,41 @@ def process_event(event_type: str, stdin_data: dict) -> dict:
     content = extract_content(event_type, data)
     if content:
         event["content"] = content
+
+    # For SubagentStop: extract full transcript content for searchability
+    # The transcript file already exists on disk when this hook fires.
+    # We extract all assistant text for FTS/embeddings and structured metadata for rendering.
+    if event_type == "SubagentStop" and isinstance(data, dict):
+        transcript_path = data.get("agent_transcript_path", "")
+        if transcript_path and Path(transcript_path).exists():
+            try:
+                transcript_info = extract_subagent_transcript(transcript_path)
+
+                # Override content with full searchable text
+                searchable_parts = []
+                agent_type = data.get("agent_type", "")
+                if agent_type:
+                    searchable_parts.append(f"Subagent: {agent_type}")
+                if transcript_info.get("first_prompt"):
+                    searchable_parts.append(transcript_info["first_prompt"])
+                if transcript_info.get("content"):
+                    searchable_parts.append(transcript_info["content"])
+                if searchable_parts:
+                    event["content"] = "\n\n".join(searchable_parts)
+                    content = event["content"]  # Update local var for embedding pipeline
+
+                # Store structured metadata in data dict (no schema change needed)
+                data["transcript_summary"] = {
+                    "model": transcript_info.get("model", ""),
+                    "tool_names": transcript_info.get("tool_names", []),
+                    "tools": transcript_info.get("tools", []),
+                    "turn_count": transcript_info.get("turn_count", 0),
+                    "token_usage": transcript_info.get("token_usage", {}),
+                    "first_prompt": transcript_info.get("first_prompt", ""),
+                    "timestamps": transcript_info.get("timestamps", {}),
+                }
+            except Exception as e:
+                log_error(e, "SubagentTranscriptExtraction")
 
     # For Stop events: capture assistant response and write BOTH atomically
     # This is the key insight from the old logging system that works consistently:
