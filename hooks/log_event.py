@@ -785,6 +785,52 @@ def extract_subagent_transcript(transcript_path: str) -> Dict[str, Any]:
         return empty
 
 
+def _format_token_meta(info: Dict[str, Any]) -> str:
+    """Build the '— N turns, X.XK tokens' suffix for subagent labels."""
+    parts = []
+    if info.get("turn_count"):
+        parts.append(f"{info['turn_count']} turns")
+    tok = info.get("token_usage", {})
+    total = tok.get("input_tokens", 0) + tok.get("output_tokens", 0)
+    if total:
+        parts.append(f"{total / 1000:.1f}K tokens" if total >= 1000 else f"{total} tokens")
+    return f" — {', '.join(parts)}" if parts else ""
+
+
+def render_subagent_md(ts: str, agent_id: str, info: Dict[str, Any]) -> List[str]:
+    """Render a subagent block as collapsible markdown lines.
+
+    Used by both in-exchange and out-of-exchange SubagentStop rendering paths.
+    Never truncates content — uses nested collapsible blocks for long sections.
+    """
+    model_tag = f" ({info['model']})" if info.get("model") else ""
+    meta_str = _format_token_meta(info)
+    sa_label = f"`{ts}` 🔵 Subagent {agent_id}{model_tag}{meta_str}"
+
+    if not (info.get("tools") or info.get("response")):
+        return [sa_label]
+
+    block = ["<details>", f"<summary>{sa_label}</summary>", ""]
+    if info.get("first_prompt"):
+        block.extend([
+            "<details>",
+            "<summary><strong>Prompt</strong></summary>",
+            "",
+            quote(info["first_prompt"]),
+            "",
+            "</details>",
+            "",
+        ])
+    if info.get("tools"):
+        block.append(f"**Tools:** {len(info['tools'])}")
+        block.extend(info["tools"])
+        block.append("")
+    if info.get("response"):
+        block.extend(["**Response:**", quote(info["response"]), ""])
+    block.extend(["</details>", ""])
+    return block
+
+
 def generate_markdown(jsonl_path: Path, md_path: Path, session_id: str) -> None:
     """Generate human-readable markdown report from JSONL source."""
     try:
@@ -894,34 +940,7 @@ def generate_markdown(jsonl_path: Path, md_path: Path, session_id: str) -> None:
 
                 if subagents:
                     for sa in subagents:
-                        model_tag = f" ({sa['model']})" if sa.get("model") else ""
-                        # Build enriched header with turn count and token usage
-                        meta_parts = []
-                        if sa.get("turn_count"):
-                            meta_parts.append(f"{sa['turn_count']} turns")
-                        tok = sa.get("token_usage", {})
-                        total_tokens = tok.get("input_tokens", 0) + tok.get("output_tokens", 0)
-                        if total_tokens:
-                            if total_tokens >= 1000:
-                                meta_parts.append(f"{total_tokens / 1000:.1f}K tokens")
-                            else:
-                                meta_parts.append(f"{total_tokens} tokens")
-                        meta_str = f" — {', '.join(meta_parts)}" if meta_parts else ""
-                        sa_label = f"`{sa['ts']}` 🔵 Subagent {sa['id']}{model_tag}{meta_str}"
-
-                        if sa.get("tools") or sa.get("response"):
-                            lines.extend(["<details>", f"<summary>{sa_label}</summary>", ""])
-                            if sa.get("first_prompt"):
-                                lines.extend([f"**Prompt:** {sa['first_prompt'][:200]}", ""])
-                            if sa.get("tools"):
-                                lines.append(f"**Tools:** {len(sa['tools'])}")
-                                lines.extend(sa["tools"])
-                                lines.append("")
-                            if sa.get("response"):
-                                lines.extend(["**Response:**", quote(sa["response"]), ""])
-                            lines.extend(["</details>", ""])
-                        else:
-                            lines.append(sa_label)
+                        lines.extend(render_subagent_md(sa["ts"], sa.get("id", "?"), sa))
 
                 prompt = None
 
@@ -953,33 +972,7 @@ def generate_markdown(jsonl_path: Path, md_path: Path, session_id: str) -> None:
                 transcript = d.get("agent_transcript_path", "")
                 info = get_subagent_info(transcript) if transcript else {}
 
-            model_tag = f" ({info['model']})" if info.get("model") else ""
-            meta_parts = []
-            if info.get("turn_count"):
-                meta_parts.append(f"{info['turn_count']} turns")
-            tok = info.get("token_usage", {})
-            total_tokens = tok.get("input_tokens", 0) + tok.get("output_tokens", 0)
-            if total_tokens:
-                if total_tokens >= 1000:
-                    meta_parts.append(f"{total_tokens / 1000:.1f}K tokens")
-                else:
-                    meta_parts.append(f"{total_tokens} tokens")
-            meta_str = f" — {', '.join(meta_parts)}" if meta_parts else ""
-            sa_label = f"`{ts}` 🔵 Subagent {agent_id}{model_tag}{meta_str}"
-
-            if info.get("tools") or info.get("response"):
-                lines.extend(["<details>", f"<summary>{sa_label}</summary>", ""])
-                if info.get("first_prompt"):
-                    lines.extend([f"**Prompt:** {info['first_prompt'][:200]}", ""])
-                if info.get("tools"):
-                    lines.append(f"**Tools:** {len(info['tools'])}")
-                    lines.extend(info["tools"])
-                    lines.append("")
-                if info.get("response"):
-                    lines.extend(["**Response:**", quote(info["response"]), ""])
-                lines.extend(["</details>", ""])
-            else:
-                lines.append(sa_label)
+            lines.extend(render_subagent_md(ts, agent_id, info))
 
         elif t in ("SessionStart", "SessionEnd", "Notification", "PreCompact", "PostCompact"):
             info = d.get("source") or d.get("message") or d.get("summary") or ""
