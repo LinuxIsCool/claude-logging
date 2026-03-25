@@ -7,7 +7,7 @@ Comprehensive conversation logging with hybrid search, full subagent transcript 
 
 ## What It Does
 
-- **Captures everything** — all 9 hook event types including full subagent transcripts
+- **Captures everything** — all 14 hook event types including full subagent transcripts
 - **Makes it searchable** — FTS5 keyword search + semantic embeddings with RRF fusion
 - **Renders it readable** — auto-generated markdown session logs with collapsible sections
 - **Keeps it local** — all data stays on your machine, no external services required
@@ -36,6 +36,14 @@ log_event.py
 On `SubagentStop`, the plugin reads the subagent's full transcript JSONL and enriches the event with all assistant text, tool calls, token usage, and metadata. This means subagent work is fully searchable — not just "Agent 'Explore' finished" but the complete content of what the agent did.
 
 ## Installation
+
+### Option A: Plugin Marketplace
+
+```
+/plugin marketplace add LinuxIsCool/claude-logging
+```
+
+### Option B: Manual Install
 
 1. Clone the plugin:
    ```bash
@@ -127,13 +135,18 @@ API endpoints:
 | Type | Description |
 |------|-------------|
 | `SessionStart` | Session began |
+| `SessionEnd` | Session terminated |
 | `UserPromptSubmit` | User's messages |
+| `AssistantResponse` | Claude's responses |
 | `PreToolUse` | Tool execution start |
 | `PostToolUse` | Tool execution result |
-| `AssistantResponse` | Claude's responses |
+| `PostToolUseFailure` | Tool execution failed |
+| `PermissionRequest` | Permission prompt shown |
+| `SubagentStart` | Subagent launched |
 | `SubagentStop` | Subagent completed (with full transcript) |
-| `PreCompact` | Context compaction |
-| `Stop` | Session ended |
+| `PreCompact` | Context compaction starting |
+| `PostCompact` | Context compaction complete |
+| `Stop` | Session stop signal |
 | `Notification` | System notifications |
 
 ## Subagent Transcript Capture
