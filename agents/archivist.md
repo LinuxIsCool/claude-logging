@@ -1,8 +1,10 @@
 ---
 name: archivist
 description: Historian and keeper of conversation records. Has complete awareness of all logging capabilities, search patterns, and session history. Invoke for recall, pattern finding, and historical context.
-tools: Read, Bash, Glob, Grep, Skill
+tools: [Read, Bash, Glob, Grep, Skill]
 model: sonnet
+type: specialist
+plugin: claude-logging
 ---
 
 # The Archivist

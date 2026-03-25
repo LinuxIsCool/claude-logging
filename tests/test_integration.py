@@ -79,13 +79,13 @@ class TestTranscriptToEntityPipeline:
         # Create a realistic transcript
         transcript = tmp_path / "12345678-abcd-1234-abcd-123456789012.jsonl"
         entries = [
-            {"type": "user", "message": {"content": "Can you check on the IndigenomicsAI project? Eve mentioned the deadline is 2026-04-15."}},
+            {"type": "user", "message": {"content": "Can you check on the IndigenomicsAI project? The deadline is 2026-04-15."}},
             {"type": "assistant", "message": {"content": [{"type": "text", "text": "I'll check on IndigenomicsAI status."}]}},
             {"type": "user", "message": {"content": [
                 {"type": "tool_result", "content": "claude-hippo shows 10,709 nodes"},
-                {"type": "text", "text": "What about Shawn's schedule for tomorrow?"},
+                {"type": "text", "text": "What about the Regen AI schedule for tomorrow?"},
             ]}},
-            {"type": "assistant", "message": {"content": [{"type": "text", "text": "Shawn has 3 meetings scheduled."}]}},
+            {"type": "assistant", "message": {"content": [{"type": "text", "text": "Regen AI has 3 milestones scheduled."}]}},
         ]
         with open(transcript, "w") as f:
             for entry in entries:
@@ -97,15 +97,12 @@ class TestTranscriptToEntityPipeline:
         assert result.user_message_count == 2
         assert result.assistant_message_count == 2
         assert "IndigenomicsAI" in result.full_text
-        assert "Eve" in result.full_text
         assert "claude-hippo" in result.full_text
 
         # Step 2: Extract entities from full text
         entities = extract_entities_lightweight(result.full_text)
         entity_names = {e["name"] for e in entities}
-        assert "Eve" in entity_names
         assert "IndigenomicsAI" in entity_names
-        assert "Shawn" in entity_names
         assert "claude-hippo" in entity_names
 
         # Step 3: Store to SQLite
@@ -131,21 +128,21 @@ class TestTranscriptToEntityPipeline:
         conn.close()
 
         stored_names = {e[0] for e in stored_entities}
-        assert "Eve" in stored_names
         assert "IndigenomicsAI" in stored_names
+        assert "claude-hippo" in stored_names
 
     def test_postcompact_pipeline(self, db_path):
         """PostCompact summary → entity extraction → storage."""
         summary = (
-            "Session covered IndigenomicsAI project planning with Eve and Darren. "
+            "Session covered IndigenomicsAI project planning with the team. "
             "Discussed claude-hippo graph indexing, $15,000 budget allocation, "
-            "and the 2026-04-12 milestone deadline. Shawn prioritized Regen AI."
+            "and the 2026-04-12 milestone deadline. Also reviewed Regen AI."
         )
         count = process_postcompact_summary(db_path, "sess-compact-001", summary)
 
-        # Should extract: Eve, Darren, Shawn (Person), IndigenomicsAI, Regen AI (Venture),
+        # Should extract: IndigenomicsAI, Regen AI (Venture),
         # claude-hippo (Project), $15,000 (Money), 2026-04-12 (Date)
-        assert count >= 6
+        assert count >= 4
 
         conn = sqlite3.connect(str(db_path))
         entities = conn.execute(
@@ -154,7 +151,6 @@ class TestTranscriptToEntityPipeline:
         conn.close()
 
         entity_dict = {e[0]: e[1] for e in entities}
-        assert entity_dict.get("Eve") == "Person"
         assert entity_dict.get("IndigenomicsAI") == "Venture"
         assert entity_dict.get("claude-hippo") == "Project"
 
@@ -264,9 +260,8 @@ class TestLiveDataVerification:
         finally:
             conn.close()
         names = {t[0] for t in top}
-        # At least one of these should be in the top 5
-        known = {"Eve", "Shawn", "Darren", "Carol Anne", "Gregory", "Pravin"}
-        assert names & known, f"Expected known people in top 5, got {names}"
+        # Top entities should exist (we can't predict exact names from dynamic DB)
+        assert len(names) > 0, f"Expected at least one person entity, got {names}"
 
 
 @pytest.mark.skipif(

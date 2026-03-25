@@ -45,17 +45,17 @@ def db_path(tmp_path):
     # Insert test entities across multiple sessions
     now = "2026-03-20T00:00:00Z"
     test_data = [
-        ("sess-001", "Eve", "Person", 5, now),
-        ("sess-001", "Shawn", "Person", 3, now),
-        ("sess-001", "IndigenomicsAI", "Venture", 2, now),
-        ("sess-002", "Eve", "Person", 8, now),
-        ("sess-002", "Shawn", "Person", 4, now),
+        ("sess-001", "Alice", "Person", 5, now),
+        ("sess-001", "Bob", "Person", 3, now),
+        ("sess-001", "TestVenture", "Venture", 2, now),
+        ("sess-002", "Alice", "Person", 8, now),
+        ("sess-002", "Bob", "Person", 4, now),
         ("sess-002", "claude-hippo", "Project", 6, now),
-        ("sess-003", "Eve", "Person", 2, now),
-        ("sess-003", "IndigenomicsAI", "Venture", 3, now),
+        ("sess-003", "Alice", "Person", 2, now),
+        ("sess-003", "TestVenture", "Venture", 3, now),
         ("sess-003", "claude-hippo", "Project", 1, now),
-        ("sess-004", "Shawn", "Person", 1, now),
-        ("sess-004", "Eve", "Person", 1, now),
+        ("sess-004", "Bob", "Person", 1, now),
+        ("sess-004", "Alice", "Person", 1, now),
     ]
     for sid, name, etype, count, ts in test_data:
         conn.execute(
@@ -81,20 +81,20 @@ class TestGetSessionEntities:
     def test_min_sessions_filter(self, db_path):
         entities = get_session_entities(db_path, min_sessions=2)
         # Eve appears in 4 sessions, Shawn in 3, IndigenomicsAI in 2, claude-hippo in 2
-        assert "Eve" in entities
-        assert "Shawn" in entities
-        assert "IndigenomicsAI" in entities
+        assert "Alice" in entities
+        assert "Bob" in entities
+        assert "TestVenture" in entities
         assert "claude-hippo" in entities
 
     def test_high_min_sessions(self, db_path):
         entities = get_session_entities(db_path, min_sessions=4)
-        # Only Eve appears in 4 sessions
-        assert "Eve" in entities
-        assert "Shawn" not in entities
+        # Only Alice appears in 4 sessions
+        assert "Alice" in entities
+        assert "Bob" not in entities
 
     def test_entity_metadata(self, db_path):
         entities = get_session_entities(db_path, min_sessions=2)
-        eve = entities["Eve"]
+        eve = entities["Alice"]
         assert eve["type"] == "Person"
         assert eve["sessions"] == 4
         assert eve["mentions"] == 16  # 5+8+2+1
@@ -112,11 +112,11 @@ class TestGetSessionEntityPairs:
 
     def test_co_occurrence_pairs(self, db_path):
         pairs = get_session_entity_pairs(db_path)
-        # Eve and Shawn co-occur in sess-001, sess-002, sess-004 = 3 sessions
+        # Alice and Bob co-occur in sess-001, sess-002, sess-004 = 3 sessions
         pair_dict = {(p[0], p[1]): p[2] for p in pairs}
         # Names sorted alphabetically (a.entity_name < b.entity_name)
-        assert ("Eve", "Shawn") in pair_dict
-        assert pair_dict[("Eve", "Shawn")] == 3
+        assert ("Alice", "Bob") in pair_dict
+        assert pair_dict[("Alice", "Bob")] == 3
 
     def test_minimum_3_shared_sessions(self, db_path):
         pairs = get_session_entity_pairs(db_path)
@@ -133,13 +133,13 @@ class TestGraphQuery:
         mock_redis.execute_command = MagicMock(return_value=None)
 
         graph_query(mock_redis, "MATCH (n) RETURN n", params={
-            "name": "Eve", "count": 42,
+            "name": "Alice", "count": 42,
         })
 
         call_args = mock_redis.execute_command.call_args
         query_str = call_args[0][2]  # 3rd positional arg is the query
         assert query_str.startswith("CYPHER ")
-        assert 'name="Eve"' in query_str
+        assert 'name="Alice"' in query_str
         assert "count=42" in query_str
 
     def test_no_params(self):

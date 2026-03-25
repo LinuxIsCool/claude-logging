@@ -20,11 +20,34 @@ from typing import Optional, List, Dict
 
 
 # Common entity patterns for lightweight NER (no LLM required)
-PERSON_PATTERNS = [
-    r'\b(?:Carol\s?Anne|Gregory|David\s?Fortson|Pravin|Darren|Eve|Brad\s?Necyk|'
-    r'Pete\s?Cork|Mike\s?DeMelo|K\.\s?Waterman|Samu|Felix|Tanya|Arshia|'
-    r'Patricia|Roxi|Shawn)\b',
-]
+def _load_person_patterns() -> list[str]:
+    """Load contact names from relationship store for entity extraction.
+
+    Reads from ~/.claude/local/relationships/relationships.db at import time.
+    Falls back to a generic two-word capitalized name pattern if DB unavailable.
+    """
+    rel_db = Path.home() / ".claude/local/relationships/relationships.db"
+    if rel_db.exists():
+        try:
+            conn = sqlite3.connect(str(rel_db))
+            rows = conn.execute(
+                "SELECT DISTINCT source FROM relationships "
+                "UNION SELECT DISTINCT target FROM relationships"
+            ).fetchall()
+            conn.close()
+            names = [r[0] for r in rows if r[0]]
+            if names:
+                # Longest names first to avoid partial matches
+                names.sort(key=len, reverse=True)
+                escaped = [re.escape(n).replace(r'\ ', r'\s?') for n in names]
+                return [r'\b(?:' + '|'.join(escaped) + r')\b']
+        except Exception:
+            pass
+    # Fallback: generic two-word capitalized name pattern
+    return [r'\b[A-Z][a-z]+\s[A-Z][a-z]+\b']
+
+
+PERSON_PATTERNS = _load_person_patterns()
 
 VENTURE_PATTERNS = [
     r'\b(?:IndigenomicsAI|Indigenomics|Protocol\s?Politicians|Salish\s?Sea|'
