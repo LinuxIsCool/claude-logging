@@ -575,7 +575,7 @@ def update_session_with_images(
         events = []
         user_prompt_indices = []  # Track positions of UserPromptSubmit events
 
-        for i, line in enumerate(lines):
+        for line in lines:
             if not line.strip():
                 continue
             event = json.loads(line)
@@ -1122,7 +1122,10 @@ def process_event(event_type: str, stdin_data: dict) -> dict:
             pass  # Never fail on markdown generation
 
     # Incremental SQLite sync on turn boundaries (keeps FTS5 index fresh)
-    if event_type in ("Stop", "SessionEnd", "SubagentStop", "PostCompact"):
+    # - Stop/SubagentStop/PostCompact: sync current session only (fast, mid-session)
+    # - SessionEnd: sync ALL sessions to catch any that fell through the cracks
+    # - SessionStart: sync ALL sessions as a startup catch-up (prevents drift)
+    if event_type in ("Stop", "SubagentStop", "PostCompact"):
         try:
             plugin_root = str(Path(__file__).resolve().parent.parent)
             if plugin_root not in sys.path:
@@ -1133,10 +1136,23 @@ def process_event(event_type: str, stdin_data: dict) -> dict:
                 sm.sync_session(session_id)
             finally:
                 sm.close()
-            # Heartbeat: logging pipeline is healthy
             write_heartbeat("logging")
         except Exception as e:
             log_error(e, f"SQLiteSync:{event_type}")
+    elif event_type in ("SessionStart", "SessionEnd"):
+        try:
+            plugin_root = str(Path(__file__).resolve().parent.parent)
+            if plugin_root not in sys.path:
+                sys.path.insert(0, plugin_root)
+            from lib.storage import StorageManager
+            sm = StorageManager(storage_path)
+            try:
+                sm.sync_all()
+            finally:
+                sm.close()
+            write_heartbeat("logging")
+        except Exception as e:
+            log_error(e, f"SQLiteSyncAll:{event_type}")
 
     # PostCompact: capture session summary and extract entities
     if event_type == "PostCompact" and isinstance(data, dict):
