@@ -18,8 +18,8 @@ Mirror Claude Code's own convention from `~/.claude/projects/`:
 **Examples**:
 | Project Path | Log Storage Path |
 |-------------|-----------------|
-| `/home/shawn/Workspace/app` | `~/.claude/local/logging/-home-shawn-Workspace-app/` |
-| `/home/shawn` | `~/.claude/local/logging/-home-shawn/` |
+| `/home/user/Workspace/app` | `~/.claude/local/logging/-home-user-Workspace-app/` |
+| `/home/user` | `~/.claude/local/logging/-home-user/` |
 | `/tmp/test` | `~/.claude/local/logging/-tmp-test/` |
 
 ### Resolution

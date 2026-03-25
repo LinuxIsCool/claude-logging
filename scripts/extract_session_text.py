@@ -14,7 +14,7 @@ Usage:
     uv run scripts/extract_session_text.py <transcript.jsonl>
 
     # Extract text from all transcripts and write index
-    uv run scripts/extract_session_text.py --all --project-dir /home/shawn
+    uv run scripts/extract_session_text.py --all --project-dir $HOME
 
     # Output as structured JSON (for pipeline consumption)
     uv run scripts/extract_session_text.py --json <transcript.jsonl>
@@ -259,8 +259,8 @@ def main():
         help="Process all transcripts for the project"
     )
     parser.add_argument(
-        "--project-dir", default="/home/shawn",
-        help="Project directory (default: /home/shawn)"
+        "--project-dir", default=str(Path.home()),
+        help="Project directory (default: $HOME)"
     )
     parser.add_argument(
         "--json", action="store_true",

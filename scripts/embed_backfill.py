@@ -8,7 +8,7 @@ embedded events.
 
 Usage:
     cd ~/.claude/plugins/local/legion-plugins/plugins/claude-logging
-    uv run scripts/embed_backfill.py [--all-types] [--batch-size 256]
+    uv run scripts/embed_backfill.py [--project-path $HOME] [--all-types] [--batch-size 256]
 """
 
 import sys
@@ -21,6 +21,7 @@ plugin_root = str(Path(__file__).resolve().parent.parent)
 if plugin_root not in sys.path:
     sys.path.insert(0, plugin_root)
 
+from lib import encode_project_path
 from lib.embeddings import EmbeddingService, EmbeddingStorage
 from lib.storage import SQLiteStorage
 
@@ -35,12 +36,17 @@ HIGH_VALUE_TYPES = (
     "SessionStart",
 )
 
-STORAGE_BASE = Path.home() / ".claude" / "local" / "logging" / "-home-shawn"
+def _get_storage_base(project_path: str) -> Path:
+    """Compute storage base from project path."""
+    return Path.home() / ".claude" / "local" / "logging" / encode_project_path(project_path)
 
 
-def backfill(all_types: bool = False, batch_size: int = 256):
-    db_path = STORAGE_BASE / "db" / "logging.db"
-    emb_db_path = STORAGE_BASE / "db" / "embeddings.db"
+def backfill(project_path: str = "", all_types: bool = False, batch_size: int = 256):
+    if not project_path:
+        project_path = str(Path.home())
+    storage_base = _get_storage_base(project_path)
+    db_path = storage_base / "db" / "logging.db"
+    emb_db_path = storage_base / "db" / "embeddings.db"
 
     print(f"SQLite DB: {db_path}")
     print(f"Embeddings DB: {emb_db_path}")
@@ -141,7 +147,9 @@ def backfill(all_types: bool = False, batch_size: int = 256):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Backfill event embeddings")
+    parser.add_argument("--project-path", default=str(Path.home()),
+                        help="Project directory (default: $HOME)")
     parser.add_argument("--all-types", action="store_true", help="Embed all event types, not just high-value")
     parser.add_argument("--batch-size", type=int, default=256, help="Batch size for encoding")
     args = parser.parse_args()
-    backfill(all_types=args.all_types, batch_size=args.batch_size)
+    backfill(project_path=args.project_path, all_types=args.all_types, batch_size=args.batch_size)

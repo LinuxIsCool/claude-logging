@@ -6,7 +6,7 @@ Syncs all JSONL session files that are not yet tracked in sync_state.
 Run this to recover from sync gaps (e.g., the March 15-20 outage).
 
 Usage:
-    uv run scripts/sync_backfill.py [--dry-run] [--project-path /home/shawn]
+    uv run scripts/sync_backfill.py [--dry-run] [--project-path $HOME]
 """
 
 import argparse
@@ -16,18 +16,15 @@ from pathlib import Path
 
 # Add parent dir so we can import lib/
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from lib import encode_project_path
 from lib.storage import StorageManager
-
-
-def encode_project_path(project_dir: str) -> str:
-    return project_dir.replace("/", "-")
 
 
 def main():
     parser = argparse.ArgumentParser(description="Backfill JSONL → SQLite sync")
     parser.add_argument(
-        "--project-path", default="/home/shawn",
-        help="Project directory (default: /home/shawn)"
+        "--project-path", default=str(Path.home()),
+        help="Project directory (default: $HOME)"
     )
     parser.add_argument(
         "--dry-run", action="store_true",

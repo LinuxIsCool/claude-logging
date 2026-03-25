@@ -24,7 +24,7 @@ def encode_project_path(project_dir: str) -> str:
     """Encode a project directory path for use as a directory name.
 
     Mirrors Claude Code's ~/.claude/projects/ convention:
-    /home/shawn/Workspace/app -> -home-shawn-Workspace-app
+    /home/user/Workspace/app -> -home-user-Workspace-app
     """
     return project_dir.replace("/", "-")
 
@@ -47,8 +47,8 @@ def get_storage_path(cwd: Optional[str] = None) -> Path:
 
 ```bash
 cd ~/claude-logging
-echo '{"session_id":"test","cwd":"/home/shawn/test-project","data":{}}' | uv run hooks/log_event.py -e SessionStart
-ls ~/.claude/local/logging/-home-shawn-test-project/sessions/
+echo '{"session_id":"test","cwd":"/home/user/test-project","data":{}}' | uv run hooks/log_event.py -e SessionStart
+ls ~/.claude/local/logging/-home-user-test-project/sessions/
 ```
 
 Expected: `test.jsonl` file created at the centralized path.
@@ -56,7 +56,7 @@ Expected: `test.jsonl` file created at the centralized path.
 **Step 3: Clean up test data**
 
 ```bash
-rm -rf ~/.claude/local/logging/-home-shawn-test-project/
+rm -rf ~/.claude/local/logging/-home-user-test-project/
 ```
 
 **Step 4: Commit**
@@ -82,7 +82,7 @@ def encode_project_path(project_dir: str) -> str:
     """Encode a project directory path for use as a directory name.
 
     Mirrors Claude Code's ~/.claude/projects/ convention:
-    /home/shawn/Workspace/app -> -home-shawn-Workspace-app
+    /home/user/Workspace/app -> -home-user-Workspace-app
     """
     return project_dir.replace("/", "-")
 
@@ -501,7 +501,7 @@ cd ~/claude-logging
 uv run python -c "from lib import get_storage_path; print(get_storage_path())"
 ```
 
-Expected: Prints `~/.claude/local/logging/-home-shawn-claude-logging` (or similar based on CWD).
+Expected: Prints `~/.claude/local/logging/-home-user-claude-logging` (or similar based on CWD).
 
 **Step 4: Final commit with design doc**
 

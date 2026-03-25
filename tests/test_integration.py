@@ -26,6 +26,7 @@ import pytest
 
 # Add paths
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PLUGIN_ROOT))
 sys.path.insert(0, str(PLUGIN_ROOT / "lib"))
 sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
 
@@ -79,13 +80,13 @@ class TestTranscriptToEntityPipeline:
         # Create a realistic transcript
         transcript = tmp_path / "12345678-abcd-1234-abcd-123456789012.jsonl"
         entries = [
-            {"type": "user", "message": {"content": "Can you check on the IndigenomicsAI project? The deadline is 2026-04-15."}},
-            {"type": "assistant", "message": {"content": [{"type": "text", "text": "I'll check on IndigenomicsAI status."}]}},
+            {"type": "user", "message": {"content": "Can you check the project status? The deadline is 2026-04-15 and the budget is $12,000."}},
+            {"type": "assistant", "message": {"content": [{"type": "text", "text": "I'll check the project status now."}]}},
             {"type": "user", "message": {"content": [
-                {"type": "tool_result", "content": "claude-hippo shows 10,709 nodes"},
-                {"type": "text", "text": "What about the Regen AI schedule for tomorrow?"},
+                {"type": "tool_result", "content": "Database shows 10,709 nodes"},
+                {"type": "text", "text": "Alice Smith needs the report by tomorrow."},
             ]}},
-            {"type": "assistant", "message": {"content": [{"type": "text", "text": "Regen AI has 3 milestones scheduled."}]}},
+            {"type": "assistant", "message": {"content": [{"type": "text", "text": "Alice Smith's report has 3 milestones scheduled."}]}},
         ]
         with open(transcript, "w") as f:
             for entry in entries:
@@ -96,14 +97,14 @@ class TestTranscriptToEntityPipeline:
         assert result is not None
         assert result.user_message_count == 2
         assert result.assistant_message_count == 2
-        assert "IndigenomicsAI" in result.full_text
-        assert "claude-hippo" in result.full_text
+        assert "2026-04-15" in result.full_text
+        assert "Alice Smith" in result.full_text
 
         # Step 2: Extract entities from full text
         entities = extract_entities_lightweight(result.full_text)
         entity_names = {e["name"] for e in entities}
-        assert "IndigenomicsAI" in entity_names
-        assert "claude-hippo" in entity_names
+        assert "2026-04-15" in entity_names
+        assert "$12,000" in entity_names
 
         # Step 3: Store to SQLite
         session_id = result.session_id
@@ -128,21 +129,21 @@ class TestTranscriptToEntityPipeline:
         conn.close()
 
         stored_names = {e[0] for e in stored_entities}
-        assert "IndigenomicsAI" in stored_names
-        assert "claude-hippo" in stored_names
+        assert "2026-04-15" in stored_names
+        assert "$12,000" in stored_names
 
     def test_postcompact_pipeline(self, db_path):
         """PostCompact summary → entity extraction → storage."""
         summary = (
-            "Session covered IndigenomicsAI project planning with the team. "
-            "Discussed claude-hippo graph indexing, $15,000 budget allocation, "
-            "and the 2026-04-12 milestone deadline. Also reviewed Regen AI."
+            "Session covered project planning with Alice Smith. "
+            "Discussed graph indexing, $15,000 budget allocation, "
+            "and the 2026-04-12 milestone deadline. Bob Jones reviewed progress."
         )
         count = process_postcompact_summary(db_path, "sess-compact-001", summary)
 
-        # Should extract: IndigenomicsAI, Regen AI (Venture),
-        # claude-hippo (Project), $15,000 (Money), 2026-04-12 (Date)
-        assert count >= 4
+        # Should extract: Alice Smith, Bob Jones (Person),
+        # $15,000 (Money), 2026-04-12 (Date)
+        assert count >= 3
 
         conn = sqlite3.connect(str(db_path))
         entities = conn.execute(
@@ -151,8 +152,8 @@ class TestTranscriptToEntityPipeline:
         conn.close()
 
         entity_dict = {e[0]: e[1] for e in entities}
-        assert entity_dict.get("IndigenomicsAI") == "Venture"
-        assert entity_dict.get("claude-hippo") == "Project"
+        assert entity_dict.get("$15,000") == "Money"
+        assert entity_dict.get("2026-04-12") == "Date"
 
 
 # ── Integration: Heartbeat lifecycle ──────────────────────────────────
@@ -195,8 +196,10 @@ class TestHeartbeatLifecycle:
 
 # ── Integration: Real data verification ───────────────────────────────
 
-LIVE_DB = Path.home() / ".claude" / "local" / "logging" / "-home-shawn" / "db" / "logging.db"
-LIVE_TRANSCRIPTS = Path.home() / ".claude" / "projects" / "-home-shawn"
+from lib import encode_project_path
+_ENCODED_HOME = encode_project_path(str(Path.home()))
+LIVE_DB = Path.home() / ".claude" / "local" / "logging" / _ENCODED_HOME / "db" / "logging.db"
+LIVE_TRANSCRIPTS = Path.home() / ".claude" / "projects" / _ENCODED_HOME
 
 
 @pytest.mark.skipif(
@@ -272,7 +275,7 @@ class TestLiveTranscriptVerification:
 
     def test_can_extract_real_session(self):
         """Pick a real transcript and verify extraction works."""
-        transcripts = list(iter_transcripts("/home/shawn"))[:1]
+        transcripts = list(iter_transcripts(str(Path.home())))[:1]
         if not transcripts:
             pytest.skip("No transcripts found")
 
@@ -283,7 +286,7 @@ class TestLiveTranscriptVerification:
 
     def test_transcript_count_matches_expectation(self):
         """Should have 200+ transcripts based on known system state."""
-        count = sum(1 for _ in iter_transcripts("/home/shawn"))
+        count = sum(1 for _ in iter_transcripts(str(Path.home())))
         assert count > 100, f"Expected 200+ transcripts, got {count}"
 
 

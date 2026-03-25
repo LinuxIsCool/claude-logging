@@ -25,7 +25,7 @@ The logging plugin stores all Claude Code interactions centrally in `~/.claude/l
 cd ~/.claude/plugins/local/legion-plugins/plugins/claude-logging && uv run python -c "
 from pathlib import Path
 from lib.storage import StorageManager
-sm = StorageManager(Path.home() / '.claude/local/logging/-home-shawn')
+sm = StorageManager(Path.home() / '.claude/local/logging' / str(Path.home()).replace('/', '-'))
 svc = sm.get_search_service()
 results, ms = svc.hybrid_search('USER_QUERY', limit=20, use_semantic=True)
 import json

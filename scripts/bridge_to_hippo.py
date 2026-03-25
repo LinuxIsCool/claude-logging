@@ -33,7 +33,8 @@ HIPPO_PORT = 6380
 HIPPO_GRAPH = "hippo"
 
 # Logging DB
-LOGGING_DB = Path.home() / ".claude" / "local" / "logging" / "-home-shawn" / "db" / "logging.db"
+_ENCODED_HOME = str(Path.home()).replace("/", "-")
+LOGGING_DB = Path.home() / ".claude" / "local" / "logging" / _ENCODED_HOME / "db" / "logging.db"
 
 # Health
 HEALTH_DIR = Path.home() / ".claude" / "local" / "health"

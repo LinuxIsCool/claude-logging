@@ -44,21 +44,56 @@ def _load_person_patterns() -> list[str]:
         except Exception:
             pass
     # Fallback: generic two-word capitalized name pattern
-    return [r'\b[A-Z][a-z]+\s[A-Z][a-z]+\b']
+    return [r'\b[A-Z][a-z]{2,}\s[A-Z][a-z]{2,}\b']
 
 
 PERSON_PATTERNS = _load_person_patterns()
 
-VENTURE_PATTERNS = [
-    r'\b(?:IndigenomicsAI|Indigenomics|Protocol\s?Politicians|Salish\s?Sea|'
-    r'Regen\s?AI|Claims\s?Engine|LTF|Legion)\b',
-]
+def _load_venture_patterns() -> list[str]:
+    """Load venture names from venture files for entity extraction.
 
-PROJECT_PATTERNS = [
-    r'\b(?:claude-(?:hippo|logging|rhythms|dreams|journal|marimo|dock|'
-    r'personas|schedule|calendar|inventory|backlog|ventures|ground|'
-    r'recordings|transcripts|messages|research|scratchpad|matrix|koi))\b',
-]
+    Reads from ~/.claude/local/ventures/*.md at import time.
+    Falls back to empty list if no ventures found.
+    """
+    ventures_dir = Path.home() / ".claude/local/ventures"
+    if ventures_dir.exists():
+        try:
+            names = [
+                f.stem.replace("-", r"\s?")
+                for f in ventures_dir.rglob("*.md")
+                if f.stem not in ("README", "template")
+            ]
+            if names:
+                return [r'\b(?:' + '|'.join(names) + r')\b']
+        except Exception:
+            pass
+    return []
+
+
+def _load_project_patterns() -> list[str]:
+    """Load plugin names for project entity extraction.
+
+    Reads from the plugin directory at import time.
+    Falls back to empty list if not found.
+    """
+    plugins_dir = Path.home() / ".claude/plugins/local/legion-plugins/plugins"
+    if plugins_dir.exists():
+        try:
+            names = [
+                re.escape(d.name)
+                for d in plugins_dir.iterdir()
+                if d.is_dir() and d.name.startswith("claude-")
+            ]
+            if names:
+                return [r'\b(?:' + '|'.join(names) + r')\b']
+        except Exception:
+            pass
+    return []
+
+
+VENTURE_PATTERNS = _load_venture_patterns()
+
+PROJECT_PATTERNS = _load_project_patterns()
 
 DATE_PATTERN = r'\b\d{4}-\d{2}-\d{2}\b'
 MONEY_PATTERN = r'\$[\d,]+(?:\.\d{2})?'
@@ -74,8 +109,9 @@ def extract_entities_lightweight(text: str) -> List[Dict]:
     entities = []
     seen = set()
 
-    def add_matches(pattern: str, entity_type: str):
-        for m in re.finditer(pattern, text, re.IGNORECASE):
+    def add_matches(pattern: str, entity_type: str, case_sensitive: bool = False):
+        flags = 0 if case_sensitive else re.IGNORECASE
+        for m in re.finditer(pattern, text, flags):
             name = m.group().strip()
             # Normalize
             key = (name.lower(), entity_type)
@@ -89,7 +125,7 @@ def extract_entities_lightweight(text: str) -> List[Dict]:
                 seen.add(key)
 
     for pattern in PERSON_PATTERNS:
-        add_matches(pattern, "Person")
+        add_matches(pattern, "Person", case_sensitive=True)
     for pattern in VENTURE_PATTERNS:
         add_matches(pattern, "Venture")
     for pattern in PROJECT_PATTERNS:
@@ -179,7 +215,7 @@ def process_postcompact_summary(
 
 
 def batch_extract_from_transcripts(
-    project_dir: str = "/home/shawn",
+    project_dir: str = str(Path.home()),
     db_path: Optional[Path] = None,
     limit: int = 0,
 ) -> Dict:
@@ -203,7 +239,8 @@ def batch_extract_from_transcripts(
     from extract_session_text import extract_session, iter_transcripts
 
     if db_path is None:
-        encoded = project_dir.replace("/", "-")
+        from lib import encode_project_path
+        encoded = encode_project_path(project_dir)
         db_path = Path.home() / ".claude" / "local" / "logging" / encoded / "db" / "logging.db"
 
     # Check which sessions already have summaries
@@ -270,8 +307,8 @@ if __name__ == "__main__":
         help="Max sessions to process (0 = all)"
     )
     parser.add_argument(
-        "--project-dir", default="/home/shawn",
-        help="Project directory"
+        "--project-dir", default=str(Path.home()),
+        help="Project directory (default: $HOME)"
     )
     args = parser.parse_args()
 

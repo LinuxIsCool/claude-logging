@@ -17,7 +17,7 @@ def encode_project_path(project_dir: str) -> str:
     """Encode a project directory path for use as a directory name.
 
     Mirrors Claude Code's ~/.claude/projects/ convention:
-    /home/shawn/Workspace/app -> -home-shawn-Workspace-app
+    /home/user/Workspace/app -> -home-user-Workspace-app
     """
     return project_dir.replace("/", "-")
 

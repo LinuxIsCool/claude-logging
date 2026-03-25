@@ -29,7 +29,7 @@ Search through past conversations using hybrid search (keyword + semantic):
 cd ~/.claude/plugins/local/legion-plugins/plugins/claude-logging && uv run python -c "
 from pathlib import Path
 from lib.storage import StorageManager
-sm = StorageManager(Path.home() / '.claude/local/logging/-home-shawn')
+sm = StorageManager(Path.home() / '.claude/local/logging' / str(Path.home()).replace('/', '-'))
 svc = sm.get_search_service()
 results, ms = svc.hybrid_search('YOUR_QUERY', limit=10, use_semantic=True)
 for r in results:
@@ -39,7 +39,7 @@ print(f'({ms:.0f}ms, {len(results)} results)')
 "
 
 # Exact match / regex (fallback for precise patterns)
-grep -rl "exact_pattern" ~/.claude/local/logging/-home-shawn/sessions/*.jsonl
+grep -rl "exact_pattern" ~/.claude/local/logging/$(echo $HOME | tr '/' '-')/sessions/*.jsonl
 ```
 
 Hybrid search combines FTS5 keyword matching with semantic similarity via sentence-transformers embeddings and Reciprocal Rank Fusion.

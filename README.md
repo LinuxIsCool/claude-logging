@@ -1,21 +1,43 @@
 # Claude Code Logging Plugin
 
-Comprehensive conversation logging with hybrid search, embeddings, and visualization for Claude Code.
+Comprehensive conversation logging with hybrid search, full subagent transcript capture, and visualization for Claude Code.
 
-## Features
+> [!NOTE]
+> This is a Claude Code plugin that hooks into every lifecycle event, stores complete conversation history, and makes it all searchable with hybrid keyword + semantic search.
 
-- **Complete Event Capture**: Logs all 9 hook event types (SessionStart, SessionEnd, UserPromptSubmit, PreToolUse, PostToolUse, Stop, SubagentStop, PreCompact, Notification)
-- **Dual Storage**: JSONL files (source of truth) + SQLite (indexed search)
-- **Hybrid Search**: FTS5 keyword search with optional semantic search using RRF fusion
-- **Local Embeddings**: sentence-transformers for semantic search (optional)
-- **REST API**: FastAPI server for programmatic access
-- **Real-time Updates**: Server-Sent Events for live event streaming
-- **Obsidian Integration**: View logs as an Obsidian vault
-- **Web Interface**: React dashboard with search, sessions, and embedding visualization
+## What It Does
+
+- **Captures everything** — all 9 hook event types including full subagent transcripts
+- **Makes it searchable** — FTS5 keyword search + semantic embeddings with RRF fusion
+- **Renders it readable** — auto-generated markdown session logs with collapsible sections
+- **Keeps it local** — all data stays on your machine, no external services required
+
+## How It Works
+
+```
+Claude Code
+  │ JSON via STDIN (hooks)
+  ▼
+log_event.py
+  │
+  ├──▶ JSONL Storage (source of truth)
+  │    sessions/*.jsonl
+  │
+  ├──▶ SQLite + FTS5 (indexed search)
+  │    db/logging.db
+  │
+  ├──▶ Embeddings (semantic search)
+  │    db/embeddings.db
+  │
+  └──▶ Markdown (human-readable)
+       sessions/*.md
+```
+
+On `SubagentStop`, the plugin reads the subagent's full transcript JSONL and enriches the event with all assistant text, tool calls, token usage, and metadata. This means subagent work is fully searchable — not just "Agent 'Explore' finished" but the complete content of what the agent did.
 
 ## Installation
 
-1. Clone the plugin to your Claude Code plugins directory:
+1. Clone the plugin:
    ```bash
    git clone https://github.com/LinuxIsCool/claude-logging.git ~/.claude/plugins/claude-logging
    ```
@@ -23,161 +45,147 @@ Comprehensive conversation logging with hybrid search, embeddings, and visualiza
 2. Install dependencies:
    ```bash
    cd ~/.claude/plugins/claude-logging
-   uv pip install -e .
+   uv sync
 
-   # For embeddings support:
-   uv pip install -e ".[embeddings]"
+   # For semantic search (optional):
+   uv sync --extra embeddings
    ```
 
-## Usage
+3. Enable the plugin in Claude Code:
+   ```
+   /plugin enable .
+   ```
 
-### Automatic Logging
+## Storage
 
-Once installed, all Claude Code interactions are automatically logged to:
+All logs are stored at `~/.claude/local/logging/<encoded-project-path>/`:
+
 ```
-~/.claude/local/logging/<encoded-project-path>/
+~/.claude/local/logging/<encoded-project>/
 ├── sessions/          # JSONL files (one per session)
-├── db/               # SQLite database with FTS5
-├── images/           # Extracted user images
-└── embeddings/       # Vector embeddings (optional)
+├── db/
+│   ├── logging.db     # SQLite with FTS5 full-text search
+│   └── embeddings.db  # Semantic search vectors (optional)
+├── images/            # Extracted user images
+└── markdown/          # Auto-generated session logs
 ```
 
-### Search
+The project path is encoded by replacing `/` with `-`, mirroring Claude Code's own `~/.claude/projects/` convention. For example, `/home/user/my-app` → `-home-user-my-app`.
 
-Use the log-search skill:
+## Search
+
+### Skill
+
+Use the built-in log-search skill:
 ```
 /log-search authentication implementation
 /log-search --type=prompt --date=week
 ```
 
-Or invoke the Archivist agent:
+### Archivist Agent
+
+Invoke the Archivist for conversational recall:
 ```
 What did we discuss about the database schema?
+How have we handled auth before?
 ```
 
-### Statistics
+### Python API
 
+```python
+from pathlib import Path
+from lib.storage import StorageManager
+
+sm = StorageManager(Path.home() / '.claude/local/logging' / str(Path.home()).replace('/', '-'))
+svc = sm.get_search_service()
+results, ms = svc.hybrid_search('your query', limit=20, use_semantic=True)
+for r in results:
+    print(f'[{r.timestamp[:10]}] [{r.event_type}] {r.content[:120]}')
 ```
-/log-stats
-/log-stats --period=week
-```
 
-### API Server
+### REST API
 
-Start the API server:
 ```bash
-cd ~/.claude/plugins/claude-logging
-uv run api/server.py
+# Start the API server
+cd ~/.claude/plugins/claude-logging && uv run api/server.py
+
+# Search
+curl -X POST http://localhost:3001/api/search \
+  -H "Content-Type: application/json" \
+  -d '{"query": "your query", "limit": 20, "use_semantic": true}'
 ```
 
-Then access:
-- `GET /api/stats` - Overall statistics
-- `POST /api/search` - Search logs
-- `GET /api/sessions` - List sessions
-- `GET /api/sessions/{id}` - Get session details
-- `GET /api/events/stream` - SSE event stream
+API endpoints:
+- `GET /api/stats` — overall statistics
+- `POST /api/search` — hybrid search
+- `GET /api/sessions` — list sessions
+- `GET /api/sessions/{id}` — session details
+- `GET /api/events/stream` — SSE live event stream
 
-### Obsidian
+## Event Types
 
-Open logs in Obsidian:
-```
-/obsidian
-```
+| Type | Description |
+|------|-------------|
+| `SessionStart` | Session began |
+| `UserPromptSubmit` | User's messages |
+| `PreToolUse` | Tool execution start |
+| `PostToolUse` | Tool execution result |
+| `AssistantResponse` | Claude's responses |
+| `SubagentStop` | Subagent completed (with full transcript) |
+| `PreCompact` | Context compaction |
+| `Stop` | Session ended |
+| `Notification` | System notifications |
 
-### Web Interface
+## Subagent Transcript Capture
 
-Launch the full web dashboard:
+When a subagent finishes, the plugin reads its full transcript and enriches the `SubagentStop` event:
+
+- **Content**: All assistant text responses → FTS5 and embedding indexing
+- **Metadata**: Model, tool names, turn count, aggregated token usage, timestamps
+- **Rendering**: Full untruncated content in collapsible markdown blocks
+
+This means every subagent's work is searchable by keyword and semantically, not just by boundary events.
+
+## Entity Extraction
+
+The plugin includes lightweight NER (Named Entity Recognition) that extracts:
+- **People** — from your contacts database, or capitalized two-word names as fallback
+- **Ventures** — dynamically loaded from `~/.claude/local/ventures/`
+- **Projects** — dynamically loaded from installed plugins
+- **Dates**, **Money**, **Durations** — regex-based
+
+Patterns are loaded at import time from your local data, so they adapt to any user's environment automatically.
+
+## Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `scripts/sync_backfill.py` | Backfill JSONL sessions into SQLite |
+| `scripts/embed_backfill.py` | Generate embeddings for semantic search |
+| `scripts/extract_session_text.py` | Extract searchable text from transcripts |
+| `scripts/bridge_to_hippo.py` | Bridge entities to FalkorDB knowledge graph |
+
+All scripts accept `--project-path` to work with any project directory.
+
+## Web Interface
+
 ```bash
 cd ~/.claude/plugins/claude-logging
 ./scripts/start-web.sh
 ```
 
-Or start servers individually:
-```bash
-# API Server (port 3001)
-uv run python -m uvicorn api.server:app --host 127.0.0.1 --port 3001
-
-# Web Server (port 3002)
-cd web && npm run dev
-```
-
-Access the dashboard at http://127.0.0.1:3002
-
-Features:
-- **Sessions Tab**: Browse sessions with integrated search, event type filters, and collapsible transcript view with markdown rendering
-- **Embeddings Tab**: Interactive 2D projection of conversation embeddings
-- **Statistics Tab**: Overview metrics and activity summary
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                    Claude Code                          │
-│  ┌─────────────────────────────────────────────────┐   │
-│  │                   Hooks                          │   │
-│  │  SessionStart, UserPromptSubmit, PreToolUse,    │   │
-│  │  PostToolUse, Stop, SubagentStop, PreCompact    │   │
-│  └───────────────────────┬─────────────────────────┘   │
-└──────────────────────────┼──────────────────────────────┘
-                           │ JSON via STDIN
-                           ▼
-┌─────────────────────────────────────────────────────────┐
-│                  log_event.py                           │
-│  • Parse event data                                     │
-│  • Extract searchable content                           │
-│  • Calculate agent_session_num                          │
-│  • Append to JSONL with file locking                    │
-└───────────────────────────┬─────────────────────────────┘
-                           │
-            ┌──────────────┴──────────────┐
-            ▼                             ▼
-┌───────────────────────┐     ┌───────────────────────────┐
-│   JSONL Storage       │     │   SQLite Storage          │
-│   (Source of Truth)   │────▶│   (Indexed Search)        │
-│   sessions/*.jsonl    │sync │   db/logging.db           │
-└───────────────────────┘     │   • FTS5 full-text        │
-                              │   • BM25 ranking          │
-                              └─────────────┬─────────────┘
-                                            │
-                              ┌─────────────┴─────────────┐
-                              ▼                           ▼
-                    ┌─────────────────┐        ┌──────────────────┐
-                    │ Search Service  │        │  API Server      │
-                    │ • Keyword (FTS5)│        │  • REST API      │
-                    │ • Semantic      │        │  • SSE streaming │
-                    │ • RRF Fusion    │        │  • Web interface │
-                    └─────────────────┘        └──────────────────┘
-```
-
-## Storage
-
-Logs are stored centrally at `~/.claude/local/logging/<encoded-project-path>/`.
-
-The project path is encoded by replacing `/` with `-`, mirroring Claude Code's own `~/.claude/projects/` convention. For example, a project at `/home/user/my-app` stores logs at `~/.claude/local/logging/-home-user-my-app/`.
-
-This means all logs from all projects are in one place, making cross-project search straightforward.
-
-## Event Schema
-
-Each event in JSONL format:
-```json
-{
-  "id": "evt_abc123def456",
-  "type": "UserPromptSubmit",
-  "ts": "2024-01-15T10:30:00.000Z",
-  "session_id": "session_xyz789",
-  "agent_session_num": 0,
-  "data": { ... },
-  "content": "Searchable content extracted from data"
-}
-```
+Access at http://127.0.0.1:3002. Features:
+- **Sessions**: Browse with search, event type filters, collapsible transcripts
+- **Embeddings**: Interactive 2D projection of conversation vectors
+- **Statistics**: Overview metrics and activity summary
 
 ## Performance
 
-- FTS5 search: <1ms for 10k events
+- FTS5 search: <1ms for 10K+ events
 - Hybrid search with RRF: <5ms
 - JSONL append: <1ms (file locking for concurrency)
 - SQLite sync: ~1000 events/sec
+- Subagent transcript extraction: <75ms even for 13MB transcripts
 
 ## License
 
