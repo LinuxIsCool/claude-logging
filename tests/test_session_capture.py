@@ -169,7 +169,7 @@ class TestStoreSessionSummary:
     def test_upsert_replaces_count(self, db_path):
         """ON CONFLICT should replace mention_count, not accumulate."""
         store_session_summary(
-            db_path, "sess-003", "Eve did 10 things.",
+            db_path, "sess-003", "TestEntity did 10 things.",
             entities=[{"name": "TestEntity", "type": "Person", "count": 5}],
         )
         # Store again — should replace, not add
@@ -211,7 +211,7 @@ class TestProcessPostcompactSummary:
             db_path, "sess-005",
             "Discussed claude-hippo and IndigenomicsAI with the team on 2026-04-01.",
         )
-        assert count >= 3  # claude-hippo, IndigenomicsAI, Eve
+        assert count >= 3  # claude-hippo, IndigenomicsAI, 2026-04-01
 
     def test_stores_with_compact_source(self, db_path):
         process_postcompact_summary(

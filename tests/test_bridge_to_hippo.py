@@ -80,7 +80,7 @@ class TestGetSessionEntities:
 
     def test_min_sessions_filter(self, db_path):
         entities = get_session_entities(db_path, min_sessions=2)
-        # Eve appears in 4 sessions, Shawn in 3, IndigenomicsAI in 2, claude-hippo in 2
+        # Alice appears in 4 sessions, Bob in 3, TestVenture in 2, claude-hippo in 2
         assert "Alice" in entities
         assert "Bob" in entities
         assert "TestVenture" in entities
