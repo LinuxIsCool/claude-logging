@@ -7,7 +7,7 @@ Comprehensive conversation logging with hybrid search, full subagent transcript 
 
 ## What It Does
 
-- **Captures everything** — all 14 hook event types including full subagent transcripts
+- **Captures everything** — all 24 hook event types including full subagent transcripts
 - **Makes it searchable** — FTS5 keyword search + semantic embeddings with RRF fusion
 - **Renders it readable** — auto-generated markdown session logs with collapsible sections
 - **Keeps it local** — all data stays on your machine, no external services required
@@ -132,22 +132,71 @@ API endpoints:
 
 ## Event Types
 
+Claude Code exposes 24 hook event types. This plugin captures all of them.
+
+**Session lifecycle:**
+
 | Type | Description |
 |------|-------------|
-| `SessionStart` | Session began |
-| `SessionEnd` | Session terminated |
-| `UserPromptSubmit` | User's messages |
-| `AssistantResponse` | Claude's responses |
-| `PreToolUse` | Tool execution start |
-| `PostToolUse` | Tool execution result |
-| `PostToolUseFailure` | Tool execution failed |
-| `PermissionRequest` | Permission prompt shown |
-| `SubagentStart` | Subagent launched |
-| `SubagentStop` | Subagent completed (with full transcript) |
-| `PreCompact` | Context compaction starting |
-| `PostCompact` | Context compaction complete |
-| `Stop` | Session stop signal |
-| `Notification` | System notifications |
+| `SessionStart` | Session begins or resumes |
+| `SessionEnd` | Session terminates |
+
+**User interaction:**
+
+| Type | Description |
+|------|-------------|
+| `UserPromptSubmit` | User submits a prompt |
+| `Notification` | System notification sent |
+| `Elicitation` | MCP server requests user input |
+| `ElicitationResult` | User responds to MCP elicitation |
+
+**Tool lifecycle:**
+
+| Type | Description |
+|------|-------------|
+| `PreToolUse` | Before tool call executes (can block) |
+| `PermissionRequest` | Permission dialog shown |
+| `PostToolUse` | After tool call succeeds |
+| `PostToolUseFailure` | After tool call fails |
+
+**Agent lifecycle:**
+
+| Type | Description |
+|------|-------------|
+| `SubagentStart` | Subagent spawned |
+| `SubagentStop` | Subagent finished (with full transcript) |
+| `TeammateIdle` | Agent team teammate about to go idle |
+| `TaskCompleted` | Task marked as completed |
+
+**Turn lifecycle:**
+
+| Type | Description |
+|------|-------------|
+| `Stop` | Claude finishes responding |
+| `StopFailure` | Turn ends due to API error |
+
+**Environment:**
+
+| Type | Description |
+|------|-------------|
+| `InstructionsLoaded` | CLAUDE.md or rules loaded into context |
+| `ConfigChange` | Configuration file changes during session |
+| `CwdChanged` | Working directory changes |
+| `FileChanged` | Watched file changes on disk |
+
+**Worktree:**
+
+| Type | Description |
+|------|-------------|
+| `WorktreeCreate` | Worktree created via `--worktree` |
+| `WorktreeRemove` | Worktree removed at session/subagent exit |
+
+**Compaction:**
+
+| Type | Description |
+|------|-------------|
+| `PreCompact` | Before context compaction |
+| `PostCompact` | After context compaction completes |
 
 ## Subagent Transcript Capture
 
