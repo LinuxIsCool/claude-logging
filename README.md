@@ -7,7 +7,7 @@ Comprehensive conversation logging with hybrid search, full subagent transcript 
 
 ## What It Does
 
-- **Captures everything** — all 24 hook event types including full subagent transcripts
+- **Captures everything** — all 25 hook event types including full subagent transcripts
 - **Makes it searchable** — FTS5 keyword search + semantic embeddings with RRF fusion
 - **Renders it readable** — auto-generated markdown session logs with collapsible sections
 - **Keeps it local** — all data stays on your machine, no external services required
@@ -132,7 +132,7 @@ API endpoints:
 
 ## Event Types
 
-Claude Code exposes 24 hook event types. This plugin captures all of them.
+Claude Code exposes 25 hook event types (as of v2.1.84). This plugin captures all of them.
 
 **Session lifecycle:**
 
@@ -166,6 +166,7 @@ Claude Code exposes 24 hook event types. This plugin captures all of them.
 | `SubagentStart` | Subagent spawned |
 | `SubagentStop` | Subagent finished (with full transcript) |
 | `TeammateIdle` | Agent team teammate about to go idle |
+| `TaskCreated` | Task created via TaskCreate tool |
 | `TaskCompleted` | Task marked as completed |
 
 **Turn lifecycle:**
