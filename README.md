@@ -237,7 +237,9 @@ All scripts accept `--project-path` to work with any project directory.
 
 Additional scripts in `contrib/` demonstrate integration with external services (FalkorDB, PostgreSQL). See `contrib/README.md`.
 
-## Web Interface
+## Web Interface (Experimental)
+
+> The web interface is functional but not fully tested. Contributions welcome.
 
 ```bash
 cd ~/.claude/plugins/claude-logging
@@ -246,8 +248,28 @@ cd ~/.claude/plugins/claude-logging
 
 Access at http://127.0.0.1:3002. Features:
 - **Sessions**: Browse with search, event type filters, collapsible transcripts
-- **Embeddings**: Interactive 2D projection of conversation vectors
 - **Statistics**: Overview metrics and activity summary
+
+## Configuration
+
+All configuration is optional. The plugin works with zero configuration.
+
+| Environment Variable | Default | Purpose |
+|---------------------|---------|---------|
+| `CLAUDE_PROJECT_DIR` | Current working directory | Project path for storage isolation |
+| `CLAUDE_PLUGIN_ROOT` | Auto-detected | Plugin installation directory |
+| `LOGGING_API_PORT` | `3001` | REST API server port |
+
+## FAQ
+
+**Where is my data stored?**
+`~/.claude/local/logging/<encoded-project-path>/`. The project path encoding replaces `/` with `-`, matching Claude Code's own convention.
+
+**How do I enable semantic search?**
+Install the optional embeddings dependency: `uv sync --extra embeddings`. Then run the backfill: `uv run scripts/embed_backfill.py`. See `examples/embedding-setup.md` for details.
+
+**What happens when Claude Code adds new hook types?**
+The plugin handles unknown event types gracefully — they're stored with generic content extraction. To add specific handling, see CONTRIBUTING.md.
 
 ## Performance
 
