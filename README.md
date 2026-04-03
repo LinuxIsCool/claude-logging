@@ -1,5 +1,9 @@
 # Claude Code Logging Plugin
 
+[![CI](https://github.com/LinuxIsCool/claude-logging/actions/workflows/ci.yml/badge.svg)](https://github.com/LinuxIsCool/claude-logging/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+
 Comprehensive conversation logging with hybrid search, full subagent transcript capture, and visualization for Claude Code.
 
 > [!NOTE]
