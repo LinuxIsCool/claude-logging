@@ -4,7 +4,7 @@
 # dependencies = ["pyyaml", "psycopg2-binary"]
 # ///
 """
-Pipeline heartbeat monitor — detect silent failures across Legion pipelines.
+Pipeline heartbeat monitor — detect silent failures across logging pipelines.
 
 Checks heartbeat files in ~/.claude/local/health/ against per-pipeline
 staleness thresholds defined in heartbeats.yml. Outputs structured health
@@ -154,10 +154,10 @@ def check_koi_freshness(
     config: dict,
     health_dir: Path = HEALTH_DIR,
 ) -> dict:
-    """Check KOI pipeline by querying personal_koi for latest bundle timestamp.
+    """Check KOI pipeline by querying a PostgreSQL database for latest bundle timestamp.
 
-    Writes koi-heartbeat as a side effect so the brief-orchestrator's
-    mtime-based glob still picks it up.
+    Writes koi-heartbeat as a side effect so mtime-based health checks
+    still pick it up.
     """
     pipeline_config = config["pipelines"].get("koi", {})
     warn_hours = pipeline_config.get("warn_hours", 24)
@@ -334,7 +334,7 @@ def format_human(results: list[dict]) -> str:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Check Legion pipeline heartbeats for staleness")
+    parser = argparse.ArgumentParser(description="Check pipeline heartbeats for staleness")
     parser.add_argument("--json", action="store_true", help="Output JSON array")
     parser.add_argument("--quiet", action="store_true", help="No output, exit code only")
     parser.add_argument(

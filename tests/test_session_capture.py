@@ -240,7 +240,7 @@ class TestProcessPostcompactSummary:
         process_postcompact_summary(
             db_path,
             "sess-006",
-            "Working on Legion stuff.",
+            "Working on project infrastructure.",
         )
         conn = sqlite3.connect(str(db_path))
         row = conn.execute("SELECT source FROM session_summaries WHERE session_id='sess-006'").fetchone()
