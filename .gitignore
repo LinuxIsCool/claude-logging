@@ -1,44 +1,31 @@
 # Python
 __pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
+*.pyc
+*.pyo
 .venv/
-venv/
-ENV/
 *.egg-info/
-.eggs/
-
-# Node.js
-node_modules/
-.next/
-out/
-*.tsbuildinfo
-
-# Claude local data (should not be committed)
-.claude/
-
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Logs
-*.log
-errors.log
-
-# Database (local data)
-db/
-*.db
-
-# Build artifacts
 dist/
 build/
 
+# Databases (generated at runtime)
+*.db
+db/
+
+# Session data (generated at runtime)
+sessions/
+images/
+errors.log
+markdown/
+
+# IDE
 .letta/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Web UI
+web/node_modules/
+web/.next/
+
+# OS
+.DS_Store
