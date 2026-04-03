@@ -5,9 +5,9 @@ Provides local embedding generation using sentence-transformers.
 Falls back gracefully when not installed.
 """
 
-from typing import List, Optional, Dict, Any
-from pathlib import Path
 import struct
+from pathlib import Path
+from typing import Any
 
 
 class EmbeddingService:
@@ -30,6 +30,7 @@ class EmbeddingService:
         """Attempt to load the embedding model."""
         try:
             from sentence_transformers import SentenceTransformer
+
             self.model = SentenceTransformer(self.model_name)
             self.dimension = self.model.get_sentence_embedding_dimension()
             return True
@@ -45,7 +46,7 @@ class EmbeddingService:
         """Check if embeddings are available."""
         return self.model is not None
 
-    def encode(self, texts: List[str]) -> List[List[float]]:
+    def encode(self, texts: list[str]) -> list[list[float]]:
         """
         Generate embeddings for a list of texts.
 
@@ -57,7 +58,7 @@ class EmbeddingService:
         embeddings = self.model.encode(texts, convert_to_numpy=True)
         return embeddings.tolist()
 
-    def encode_single(self, text: str) -> Optional[List[float]]:
+    def encode_single(self, text: str) -> list[float] | None:
         """Generate embedding for a single text."""
         if not self.is_available:
             return None
@@ -65,7 +66,7 @@ class EmbeddingService:
         result = self.encode([text])
         return result[0] if result else None
 
-    def similarity(self, embedding1: List[float], embedding2: List[float]) -> float:
+    def similarity(self, embedding1: list[float], embedding2: list[float]) -> float:
         """Calculate cosine similarity between two embeddings."""
         try:
             import numpy as np
@@ -146,43 +147,38 @@ class EmbeddingStorage:
 
         self.conn.commit()
 
-    def _serialize_embedding(self, embedding: List[float]) -> bytes:
+    def _serialize_embedding(self, embedding: list[float]) -> bytes:
         """Serialize embedding to bytes."""
-        return struct.pack(f'{len(embedding)}f', *embedding)
+        return struct.pack(f"{len(embedding)}f", *embedding)
 
-    def _deserialize_embedding(self, data: bytes) -> List[float]:
+    def _deserialize_embedding(self, data: bytes) -> list[float]:
         """Deserialize embedding from bytes."""
         count = len(data) // 4
-        return list(struct.unpack(f'{count}f', data))
+        return list(struct.unpack(f"{count}f", data))
 
-    def store(
-        self,
-        event_id: str,
-        embedding: List[float],
-        metadata: Dict[str, Any]
-    ) -> None:
+    def store(self, event_id: str, embedding: list[float], metadata: dict[str, Any]) -> None:
         """Store an embedding with metadata."""
         blob = self._serialize_embedding(embedding)
-        self.conn.execute(
-            "INSERT OR REPLACE INTO embeddings (event_id, embedding) VALUES (?, ?)",
-            (event_id, blob)
-        )
+        self.conn.execute("INSERT OR REPLACE INTO embeddings (event_id, embedding) VALUES (?, ?)", (event_id, blob))
 
-        self.conn.execute("""
+        self.conn.execute(
+            """
             INSERT OR REPLACE INTO embedding_metadata
             (event_id, session_id, event_type, content, timestamp)
             VALUES (?, ?, ?, ?, ?)
-        """, (
-            event_id,
-            metadata.get("session_id", ""),
-            metadata.get("event_type", ""),
-            metadata.get("content", ""),
-            metadata.get("timestamp", ""),
-        ))
+        """,
+            (
+                event_id,
+                metadata.get("session_id", ""),
+                metadata.get("event_type", ""),
+                metadata.get("content", ""),
+                metadata.get("timestamp", ""),
+            ),
+        )
 
         self.conn.commit()
 
-    def _build_filter_ids(self, filters: Optional[Dict[str, Any]]) -> Optional[set]:
+    def _build_filter_ids(self, filters: dict[str, Any] | None) -> set | None:
         """Build set of event_ids matching filters, or None if no filters."""
         if not filters:
             return None
@@ -202,17 +198,12 @@ class EmbeddingStorage:
             conditions.append("timestamp <= ?")
             params.append(filters["date_to"])
 
-        cursor = self.conn.execute(
-            f"SELECT event_id FROM embedding_metadata WHERE {' AND '.join(conditions)}", params
-        )
+        cursor = self.conn.execute(f"SELECT event_id FROM embedding_metadata WHERE {' AND '.join(conditions)}", params)
         return {row[0] for row in cursor}
 
     def search(
-        self,
-        query_embedding: List[float],
-        limit: int = 20,
-        filters: Optional[Dict[str, Any]] = None
-    ) -> List[Dict[str, Any]]:
+        self, query_embedding: list[float], limit: int = 20, filters: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         """
         Search for similar embeddings.
 
@@ -227,7 +218,8 @@ class EmbeddingStorage:
             # sqlite-vec MATCH doesn't support arbitrary WHERE on joins,
             # so over-fetch 3x and post-filter
             fetch_limit = limit * 3 if filter_ids is not None else limit
-            cursor = self.conn.execute(f"""
+            cursor = self.conn.execute(
+                """
                 SELECT
                     e.event_id,
                     distance,
@@ -240,20 +232,24 @@ class EmbeddingStorage:
                 WHERE embedding MATCH ?
                 ORDER BY distance
                 LIMIT ?
-            """, (query_embedding, fetch_limit))
+            """,
+                (query_embedding, fetch_limit),
+            )
 
             results = []
             for row in cursor:
                 if filter_ids is not None and row[0] not in filter_ids:
                     continue
-                results.append({
-                    "event_id": row[0],
-                    "score": 1 - row[1],  # Convert distance to similarity
-                    "session_id": row[2],
-                    "event_type": row[3],
-                    "content": row[4],
-                    "timestamp": row[5],
-                })
+                results.append(
+                    {
+                        "event_id": row[0],
+                        "score": 1 - row[1],  # Convert distance to similarity
+                        "session_id": row[2],
+                        "event_type": row[3],
+                        "content": row[4],
+                        "timestamp": row[5],
+                    }
+                )
                 if len(results) >= limit:
                     break
             return results
@@ -292,24 +288,29 @@ class EmbeddingStorage:
             # Fetch metadata for top results
             final_results = []
             for event_id, score in zip(top_ids, top_scores):
-                meta_cursor = self.conn.execute("""
+                meta_cursor = self.conn.execute(
+                    """
                     SELECT session_id, event_type, content, timestamp
                     FROM embedding_metadata WHERE event_id = ?
-                """, (event_id,))
+                """,
+                    (event_id,),
+                )
                 meta = meta_cursor.fetchone()
                 if meta:
-                    final_results.append({
-                        "event_id": event_id,
-                        "score": score,
-                        "session_id": meta[0],
-                        "event_type": meta[1],
-                        "content": meta[2],
-                        "timestamp": meta[3],
-                    })
+                    final_results.append(
+                        {
+                            "event_id": event_id,
+                            "score": score,
+                            "session_id": meta[0],
+                            "event_type": meta[1],
+                            "content": meta[2],
+                            "timestamp": meta[3],
+                        }
+                    )
 
             return final_results
 
-    def store_batch(self, items: List[Dict[str, Any]]) -> int:
+    def store_batch(self, items: list[dict[str, Any]]) -> int:
         """Store multiple embeddings in a single transaction.
 
         Each item must have: event_id, embedding, metadata (dict with
@@ -325,21 +326,23 @@ class EmbeddingStorage:
 
                 blob = self._serialize_embedding(embedding)
                 self.conn.execute(
-                    "INSERT OR REPLACE INTO embeddings (event_id, embedding) VALUES (?, ?)",
-                    (event_id, blob)
+                    "INSERT OR REPLACE INTO embeddings (event_id, embedding) VALUES (?, ?)", (event_id, blob)
                 )
 
-                self.conn.execute("""
+                self.conn.execute(
+                    """
                     INSERT OR REPLACE INTO embedding_metadata
                     (event_id, session_id, event_type, content, timestamp)
                     VALUES (?, ?, ?, ?, ?)
-                """, (
-                    event_id,
-                    metadata.get("session_id", ""),
-                    metadata.get("event_type", ""),
-                    metadata.get("content", ""),
-                    metadata.get("timestamp", ""),
-                ))
+                """,
+                    (
+                        event_id,
+                        metadata.get("session_id", ""),
+                        metadata.get("event_type", ""),
+                        metadata.get("content", ""),
+                        metadata.get("timestamp", ""),
+                    ),
+                )
                 count += 1
 
             self.conn.commit()

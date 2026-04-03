@@ -3,8 +3,6 @@
 import sys
 from pathlib import Path
 
-import pytest
-
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 if str(PLUGIN_ROOT) not in sys.path:
     sys.path.insert(0, str(PLUGIN_ROOT))
@@ -46,13 +44,16 @@ class TestKeywordSearch:
 
     def test_event_type_filter(self, search_service):
         results = search_service.keyword_search(
-            "auth", event_types=["UserPromptSubmit"],
+            "auth",
+            event_types=["UserPromptSubmit"],
         )
         assert all(r.event_type == "UserPromptSubmit" for r in results)
 
     def test_date_range_filter(self, search_service):
         results = search_service.keyword_search(
-            "database", date_from="2026-04-02", date_to="2026-04-02T23:59:59",
+            "database",
+            date_from="2026-04-02",
+            date_to="2026-04-02T23:59:59",
         )
         for r in results:
             assert "2026-04-02" in r.timestamp

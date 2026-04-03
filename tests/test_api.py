@@ -19,7 +19,9 @@ def client(tmp_storage, monkeypatch):
     monkeypatch.setattr("api.server._search_has_semantic", False)
 
     from starlette.testclient import TestClient
+
     from api.server import app
+
     return TestClient(app, raise_server_exceptions=False)
 
 
@@ -49,20 +51,26 @@ class TestAPISearch:
         assert r.json()["total"] == 0
 
     def test_search_event_type_filter(self, client):
-        r = client.post("/api/search", json={
-            "query": "auth",
-            "event_types": ["PreToolUse"],
-        })
+        r = client.post(
+            "/api/search",
+            json={
+                "query": "auth",
+                "event_types": ["PreToolUse"],
+            },
+        )
         assert r.status_code == 200
         for res in r.json()["results"]:
             assert res["event_type"] == "PreToolUse"
 
     def test_search_date_filter(self, client):
-        r = client.post("/api/search", json={
-            "query": "database",
-            "date_from": "2026-04-02",
-            "date_to": "2026-04-02T23:59:59",
-        })
+        r = client.post(
+            "/api/search",
+            json={
+                "query": "database",
+                "date_from": "2026-04-02",
+                "date_to": "2026-04-02T23:59:59",
+            },
+        )
         assert r.status_code == 200
         for res in r.json()["results"]:
             assert "2026-04-02" in res["timestamp"]

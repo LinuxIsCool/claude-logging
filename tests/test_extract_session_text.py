@@ -12,7 +12,6 @@ and the streaming file read.
 
 import json
 import sys
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -20,18 +19,15 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 from extract_session_text import (
+    extract_session,
     extract_text_from_content,
     extract_tool_names,
-    extract_session,
-    iter_transcripts,
-    SessionText,
 )
-
 
 # ── extract_text_from_content ─────────────────────────────────────────
 
-class TestExtractTextFromContent:
 
+class TestExtractTextFromContent:
     def test_plain_string(self):
         assert extract_text_from_content("hello world") == "hello world"
 
@@ -47,10 +43,12 @@ class TestExtractTextFromContent:
         assert "tool output here" in result
 
     def test_tool_result_with_list_content(self):
-        content = [{
-            "type": "tool_result",
-            "content": [{"type": "text", "text": "nested tool output"}],
-        }]
+        content = [
+            {
+                "type": "tool_result",
+                "content": [{"type": "text", "text": "nested tool output"}],
+            }
+        ]
         result = extract_text_from_content(content)
         assert "nested tool output" in result
 
@@ -88,8 +86,8 @@ class TestExtractTextFromContent:
 
 # ── extract_tool_names ────────────────────────────────────────────────
 
-class TestExtractToolNames:
 
+class TestExtractToolNames:
     def test_extracts_tool_use_names(self):
         content = [
             {"type": "tool_use", "name": "Bash"},
@@ -109,8 +107,8 @@ class TestExtractToolNames:
 
 # ── extract_session ───────────────────────────────────────────────────
 
-class TestExtractSession:
 
+class TestExtractSession:
     def _write_transcript(self, tmp_path, session_id, entries):
         """Write a fake transcript JSONL."""
         path = tmp_path / f"{session_id}.jsonl"
@@ -137,10 +135,15 @@ class TestExtractSession:
     def test_tool_result_messages(self, tmp_path):
         """84% of messages are tool_result arrays."""
         entries = [
-            {"type": "user", "message": {"content": [
-                {"type": "tool_result", "content": "file contents here"},
-                {"type": "text", "text": "Now do something with this file"},
-            ]}},
+            {
+                "type": "user",
+                "message": {
+                    "content": [
+                        {"type": "tool_result", "content": "file contents here"},
+                        {"type": "text", "text": "Now do something with this file"},
+                    ]
+                },
+            },
         ]
         path = self._write_transcript(tmp_path, "test-session-002", entries)
         result = extract_session(path)
@@ -180,10 +183,7 @@ class TestExtractSession:
 
     def test_streaming_reads_large_file(self, tmp_path):
         """Verify streaming read works (no read_text() loading entire file)."""
-        entries = [
-            {"type": "user", "message": {"content": f"Message {i}"}}
-            for i in range(1000)
-        ]
+        entries = [{"type": "user", "message": {"content": f"Message {i}"}} for i in range(1000)]
         path = self._write_transcript(tmp_path, "test-large", entries)
         result = extract_session(path)
         assert result.user_message_count == 1000
@@ -191,8 +191,8 @@ class TestExtractSession:
 
 # ── iter_transcripts ──────────────────────────────────────────────────
 
-class TestIterTranscripts:
 
+class TestIterTranscripts:
     def test_filters_non_uuid_files(self, tmp_path):
         # Simulate the ~/.claude/projects/-project/ structure
         project_dir = tmp_path / ".claude" / "projects" / "-test-project"
@@ -204,9 +204,6 @@ class TestIterTranscripts:
         (project_dir / "notes.jsonl").write_text("{}")
         (project_dir / "README.md").write_text("hello")
 
-        # Monkey-patch the projects dir for testing
-        import extract_session_text as mod
-        original_home = Path.home
         # Can't easily test iter_transcripts without mocking Path.home
         # This is a structural test — verify the UUID filter logic
         stem = "12345678-1234-1234-1234-123456789012"

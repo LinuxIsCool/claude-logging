@@ -4,26 +4,26 @@ FastAPI Server for Logging Plugin
 Provides REST API for search, statistics, and real-time updates.
 """
 
-from contextlib import asynccontextmanager
-
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, FileResponse
-from pydantic import BaseModel
-from typing import Optional, List
-from pathlib import Path
 import asyncio
+import contextlib
 import json
-import os
 import mimetypes
+import os
 import re
 
 # Add parent to path for imports (plugin scripts aren't installed as packages)
 import sys
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, StreamingResponse
+from pydantic import BaseModel
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from lib.storage import StorageManager
-
 
 # Configuration
 _project_dir = os.environ.get("CLAUDE_PROJECT_DIR", os.getcwd())
@@ -51,6 +51,7 @@ def get_search():
         _search_has_semantic = _search_service.embedding_storage is not None
     return _search_service
 
+
 _sync_task = None
 
 
@@ -63,10 +64,8 @@ async def lifespan(app: FastAPI):
     async def _periodic_sync():
         while True:
             await asyncio.sleep(30)
-            try:
+            with contextlib.suppress(Exception):
                 storage.sync_all()
-            except Exception:
-                pass
 
     _sync_task = asyncio.create_task(_periodic_sync())
     yield
@@ -95,9 +94,9 @@ app.add_middleware(
 class SearchRequest(BaseModel):
     query: str
     limit: int = 20
-    event_types: Optional[List[str]] = None
-    date_from: Optional[str] = None
-    date_to: Optional[str] = None
+    event_types: list[str] | None = None
+    date_from: str | None = None
+    date_to: str | None = None
     use_semantic: bool = False
 
 
@@ -112,7 +111,7 @@ class SearchResultItem(BaseModel):
 
 
 class SearchResponse(BaseModel):
-    results: List[SearchResultItem]
+    results: list[SearchResultItem]
     total: int
     time_ms: float
     semantic_active: bool = False
@@ -121,19 +120,19 @@ class SearchResponse(BaseModel):
 class SessionSummary(BaseModel):
     id: str
     started_at: str
-    ended_at: Optional[str]
-    cwd: Optional[str]
-    summary: Optional[str]
+    ended_at: str | None
+    cwd: str | None
+    summary: str | None
     event_count: int
-    event_type_counts: Optional[dict] = None  # Counts by event type
+    event_type_counts: dict | None = None  # Counts by event type
 
 
 class StatsResponse(BaseModel):
     session_count: int
     event_count: int
     total_tokens: int
-    first_session: Optional[str]
-    last_session: Optional[str]
+    first_session: str | None
+    last_session: str | None
 
 
 # Routes
@@ -159,7 +158,7 @@ async def search_logs(request: SearchRequest):
             event_types=request.event_types,
             date_from=request.date_from,
             date_to=request.date_to,
-            use_semantic=request.use_semantic
+            use_semantic=request.use_semantic,
         )
 
         return SearchResponse(
@@ -171,33 +170,28 @@ async def search_logs(request: SearchRequest):
                     content=r.content[:500],  # Truncate for response
                     score=r.score,
                     timestamp=r.timestamp,
-                    source=r.source
+                    source=r.source,
                 )
                 for r in results
             ],
             total=len(results),
             time_ms=time_ms,
-            semantic_active=svc.embedding_storage is not None
+            semantic_active=svc.embedding_storage is not None,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/sessions", response_model=List[SessionSummary])
+@app.get("/api/sessions", response_model=list[SessionSummary])
 async def list_sessions(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None
+    date_from: str | None = None,
+    date_to: str | None = None,
 ):
     """List sessions with pagination."""
     try:
-        sessions = storage.sqlite.list_sessions(
-            limit=limit,
-            offset=offset,
-            date_from=date_from,
-            date_to=date_to
-        )
+        sessions = storage.sqlite.list_sessions(limit=limit, offset=offset, date_from=date_from, date_to=date_to)
 
         # Get event type counts for all sessions in batch
         session_ids = [s["id"] for s in sessions]
@@ -211,7 +205,7 @@ async def list_sessions(
                 cwd=s.get("cwd"),
                 summary=s.get("summary"),
                 event_count=s.get("event_count", 0),
-                event_type_counts=type_counts.get(s["id"], {})
+                event_type_counts=type_counts.get(s["id"], {}),
             )
             for s in sessions
         ]
@@ -230,10 +224,7 @@ async def get_session(session_id: str):
         # Get events from JSONL
         events = list(storage.jsonl.read_session(session_id))
 
-        return {
-            "session": session,
-            "events": events
-        }
+        return {"session": session, "events": events}
     except HTTPException:
         raise
     except Exception as e:
@@ -251,7 +242,7 @@ async def get_stats():
             event_count=stats.get("event_count", 0) or 0,
             total_tokens=stats.get("total_tokens", 0) or 0,
             first_session=stats.get("first_session"),
-            last_session=stats.get("last_session")
+            last_session=stats.get("last_session"),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -282,7 +273,7 @@ async def get_subagent_transcript(session_id: str, agent_id: str):
 
         # Read the transcript
         messages = []
-        with open(subagent_file, "r") as f:
+        with open(subagent_file) as f:
             for line in f:
                 if line.strip():
                     try:
@@ -327,7 +318,7 @@ async def get_subagent_transcript(session_id: str, agent_id: str):
             "session_id": session_id,
             "prompt": prompt,
             "response": final_response,
-            "message_count": len(messages)
+            "message_count": len(messages),
         }
 
     except HTTPException:
@@ -337,10 +328,7 @@ async def get_subagent_transcript(session_id: str, agent_id: str):
 
 
 @app.get("/api/events/recent")
-async def get_recent_events(
-    limit: int = Query(50, ge=1, le=200),
-    event_types: Optional[str] = None
-):
+async def get_recent_events(limit: int = Query(50, ge=1, le=200), event_types: str | None = None):
     """Get recent events (for browsing without search)."""
     try:
         types_list = event_types.split(",") if event_types else None
@@ -373,9 +361,9 @@ async def serve_image(session_id: str, filename: str):
     try:
         # Security: validate session_id and filename format
         # Only allow alphanumeric, hyphens, underscores, and dots
-        if not re.match(r'^[a-zA-Z0-9\-]+$', session_id):
+        if not re.match(r"^[a-zA-Z0-9\-]+$", session_id):
             raise HTTPException(status_code=400, detail="Invalid session ID format")
-        if not re.match(r'^[a-zA-Z0-9_\-\.]+$', filename):
+        if not re.match(r"^[a-zA-Z0-9_\-\.]+$", filename):
             raise HTTPException(status_code=400, detail="Invalid filename format")
 
         # Prevent path traversal
@@ -383,9 +371,9 @@ async def serve_image(session_id: str, filename: str):
             raise HTTPException(status_code=400, detail="Invalid filename")
 
         # Validate file extension is an allowed image type
-        allowed_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.webp'}
-        file_ext = filename.lower().rsplit('.', 1)[-1] if '.' in filename else ''
-        if f'.{file_ext}' not in allowed_extensions:
+        allowed_extensions = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+        file_ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
+        if f".{file_ext}" not in allowed_extensions:
             raise HTTPException(status_code=400, detail="Invalid file type")
 
         image_path = STORAGE_PATH / "images" / session_id / filename
@@ -404,11 +392,7 @@ async def serve_image(session_id: str, filename: str):
         if not content_type:
             content_type = "application/octet-stream"
 
-        return FileResponse(
-            image_path,
-            media_type=content_type,
-            filename=filename
-        )
+        return FileResponse(image_path, media_type=content_type, filename=filename)
 
     except HTTPException:
         raise
@@ -423,6 +407,7 @@ async def stream_events():
 
     Watches the sessions directory for changes and emits events.
     """
+
     async def event_generator():
         try:
             import watchfiles
@@ -430,11 +415,11 @@ async def stream_events():
             sessions_dir = STORAGE_PATH / "sessions"
 
             async for changes in watchfiles.awatch(sessions_dir):
-                for change_type, path in changes:
+                for _change_type, path in changes:
                     if path.endswith(".jsonl"):
                         # Read last line of changed file
                         try:
-                            with open(path, "r") as f:
+                            with open(path) as f:
                                 lines = f.readlines()
                                 if lines:
                                     event = json.loads(lines[-1])
@@ -453,7 +438,7 @@ async def stream_events():
                     last_size = seen_positions.get(str(session_file), 0)
 
                     if current_size > last_size:
-                        with open(session_file, "r") as f:
+                        with open(session_file) as f:
                             f.seek(last_size)
                             for line in f:
                                 if line.strip():
@@ -463,10 +448,7 @@ async def stream_events():
 
                 await asyncio.sleep(1)
 
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream"
-    )
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 def main():
@@ -475,13 +457,7 @@ def main():
 
     port = int(os.environ.get("LOGGING_API_PORT", 3001))
 
-    uvicorn.run(
-        "api.server:app",
-        host="127.0.0.1",
-        port=port,
-        reload=True,
-        log_level="info"
-    )
+    uvicorn.run("api.server:app", host="127.0.0.1", port=port, reload=True, log_level="info")
 
 
 if __name__ == "__main__":

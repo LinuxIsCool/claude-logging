@@ -9,7 +9,7 @@ PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 if str(PLUGIN_ROOT) not in sys.path:
     sys.path.insert(0, str(PLUGIN_ROOT))
 
-from lib.embeddings import EmbeddingStorage, EmbeddingService
+from lib.embeddings import EmbeddingService, EmbeddingStorage
 
 
 @pytest.fixture
@@ -21,18 +21,22 @@ def emb_store(tmp_path):
 
 class TestEmbeddingStorage:
     def test_init_creates_tables(self, emb_store):
-        tables = emb_store.conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()
+        tables = emb_store.conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
         names = {t[0] for t in tables}
         assert "embeddings" in names
         assert "embedding_metadata" in names
 
     def test_store_and_search(self, emb_store):
-        emb_store.store("evt1", [1.0, 0.0, 0.0, 0.0], {
-            "session_id": "s1", "event_type": "Stop",
-            "content": "hello", "timestamp": "2026-04-01T10:00:00Z",
-        })
+        emb_store.store(
+            "evt1",
+            [1.0, 0.0, 0.0, 0.0],
+            {
+                "session_id": "s1",
+                "event_type": "Stop",
+                "content": "hello",
+                "timestamp": "2026-04-01T10:00:00Z",
+            },
+        )
         results = emb_store.search([1.0, 0.0, 0.0, 0.0], limit=5)
         assert len(results) == 1
         assert results[0]["event_id"] == "evt1"
@@ -44,8 +48,10 @@ class TestEmbeddingStorage:
                 "event_id": f"evt{i}",
                 "embedding": [float(i == j) for j in range(4)],
                 "metadata": {
-                    "session_id": "s1", "event_type": "Stop",
-                    "content": f"text{i}", "timestamp": "2026-04-01T10:00:00Z",
+                    "session_id": "s1",
+                    "event_type": "Stop",
+                    "content": f"text{i}",
+                    "timestamp": "2026-04-01T10:00:00Z",
                 },
             }
             for i in range(4)
@@ -54,16 +60,29 @@ class TestEmbeddingStorage:
         assert count == 4
 
     def test_search_with_event_type_filter(self, emb_store):
-        emb_store.store("evt1", [1.0, 0.0, 0.0, 0.0], {
-            "session_id": "s1", "event_type": "Stop",
-            "content": "a", "timestamp": "t",
-        })
-        emb_store.store("evt2", [0.9, 0.1, 0.0, 0.0], {
-            "session_id": "s1", "event_type": "UserPromptSubmit",
-            "content": "b", "timestamp": "t",
-        })
+        emb_store.store(
+            "evt1",
+            [1.0, 0.0, 0.0, 0.0],
+            {
+                "session_id": "s1",
+                "event_type": "Stop",
+                "content": "a",
+                "timestamp": "t",
+            },
+        )
+        emb_store.store(
+            "evt2",
+            [0.9, 0.1, 0.0, 0.0],
+            {
+                "session_id": "s1",
+                "event_type": "UserPromptSubmit",
+                "content": "b",
+                "timestamp": "t",
+            },
+        )
         results = emb_store.search(
-            [1.0, 0.0, 0.0, 0.0], limit=5,
+            [1.0, 0.0, 0.0, 0.0],
+            limit=5,
             filters={"event_types": ["UserPromptSubmit"]},
         )
         assert all(r["event_type"] == "UserPromptSubmit" for r in results)

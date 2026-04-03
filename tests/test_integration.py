@@ -30,14 +30,12 @@ sys.path.insert(0, str(PLUGIN_ROOT))
 sys.path.insert(0, str(PLUGIN_ROOT / "lib"))
 sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
 
+from extract_session_text import extract_session, iter_transcripts
 from session_capture import (
     extract_entities_lightweight,
-    store_session_summary,
     process_postcompact_summary,
-    batch_extract_from_transcripts,
+    store_session_summary,
 )
-from extract_session_text import extract_session, iter_transcripts
-
 
 # ── Schema ────────────────────────────────────────────────────────────
 
@@ -73,20 +71,36 @@ def db_path(tmp_path):
 
 # ── Integration: Transcript → Entities → SQLite ──────────────────────
 
-class TestTranscriptToEntityPipeline:
 
+class TestTranscriptToEntityPipeline:
     def test_end_to_end_with_fake_transcript(self, tmp_path, db_path):
         """Full pipeline: JSONL → text extraction → NER → SQLite."""
         # Create a realistic transcript
         transcript = tmp_path / "12345678-abcd-1234-abcd-123456789012.jsonl"
         entries = [
-            {"type": "user", "message": {"content": "Can you check the project status? The deadline is 2026-04-15 and the budget is $12,000."}},
-            {"type": "assistant", "message": {"content": [{"type": "text", "text": "I'll check the project status now."}]}},
-            {"type": "user", "message": {"content": [
-                {"type": "tool_result", "content": "Database shows 10,709 nodes"},
-                {"type": "text", "text": "Alice Smith needs the report by tomorrow."},
-            ]}},
-            {"type": "assistant", "message": {"content": [{"type": "text", "text": "Alice Smith's report has 3 milestones scheduled."}]}},
+            {
+                "type": "user",
+                "message": {
+                    "content": "Can you check the project status? The deadline is 2026-04-15 and the budget is $12,000."
+                },
+            },
+            {
+                "type": "assistant",
+                "message": {"content": [{"type": "text", "text": "I'll check the project status now."}]},
+            },
+            {
+                "type": "user",
+                "message": {
+                    "content": [
+                        {"type": "tool_result", "content": "Database shows 10,709 nodes"},
+                        {"type": "text", "text": "Alice Smith needs the report by tomorrow."},
+                    ]
+                },
+            },
+            {
+                "type": "assistant",
+                "message": {"content": [{"type": "text", "text": "Alice Smith's report has 3 milestones scheduled."}]},
+            },
         ]
         with open(transcript, "w") as f:
             for entry in entries:
@@ -109,22 +123,24 @@ class TestTranscriptToEntityPipeline:
         # Step 3: Store to SQLite
         session_id = result.session_id
         store_session_summary(
-            db_path, session_id, result.user_text, "extracted", entities,
+            db_path,
+            session_id,
+            result.user_text,
+            "extracted",
+            entities,
         )
 
         # Step 4: Verify storage
         conn = sqlite3.connect(str(db_path))
         summary = conn.execute(
-            "SELECT summary, source, entities_extracted FROM session_summaries WHERE session_id=?",
-            (session_id,)
+            "SELECT summary, source, entities_extracted FROM session_summaries WHERE session_id=?", (session_id,)
         ).fetchone()
         assert summary is not None
         assert summary[1] == "extracted"
         assert summary[2] > 0
 
         stored_entities = conn.execute(
-            "SELECT entity_name, entity_type, mention_count FROM session_entities WHERE session_id=?",
-            (session_id,)
+            "SELECT entity_name, entity_type, mention_count FROM session_entities WHERE session_id=?", (session_id,)
         ).fetchall()
         conn.close()
 
@@ -158,11 +174,12 @@ class TestTranscriptToEntityPipeline:
 
 # ── Integration: Heartbeat lifecycle ──────────────────────────────────
 
-class TestHeartbeatLifecycle:
 
+class TestHeartbeatLifecycle:
     def test_write_check_cycle(self, tmp_path):
         """Write heartbeat → check → should be fresh."""
         import importlib.util
+
         spec = importlib.util.spec_from_file_location(
             "log_event",
             str(PLUGIN_ROOT / "hooks" / "log_event.py"),
@@ -174,9 +191,9 @@ class TestHeartbeatLifecycle:
         sys.argv = original_argv
 
         from unittest.mock import patch
+
         test_names = ("logging", "embedding", "hippo")
-        with patch.object(log_event, "HEALTH_DIR", tmp_path), \
-             patch.object(log_event, "HEARTBEAT_NAMES", test_names):
+        with patch.object(log_event, "HEALTH_DIR", tmp_path), patch.object(log_event, "HEARTBEAT_NAMES", test_names):
             # Write all heartbeats
             for name in test_names:
                 log_event.write_heartbeat(name)
@@ -199,17 +216,14 @@ class TestHeartbeatLifecycle:
 # ── Integration: Real data verification ───────────────────────────────
 
 from lib import encode_project_path
+
 _ENCODED_HOME = encode_project_path(str(Path.home()))
 LIVE_DB = Path.home() / ".claude" / "local" / "logging" / _ENCODED_HOME / "db" / "logging.db"
 LIVE_TRANSCRIPTS = Path.home() / ".claude" / "projects" / _ENCODED_HOME
 
 
-@pytest.mark.skipif(
-    not LIVE_DB.exists(),
-    reason="Live logging.db not available"
-)
+@pytest.mark.skipif(not LIVE_DB.exists(), reason="Live logging.db not available")
 class TestLiveDataVerification:
-
     def test_session_summaries_populated(self):
         """Verify batch extraction populated session_summaries."""
         conn = sqlite3.connect(str(LIVE_DB), timeout=10)
@@ -237,9 +251,7 @@ class TestLiveDataVerification:
         """Check that multiple entity types are represented."""
         conn = sqlite3.connect(str(LIVE_DB), timeout=10)
         try:
-            types = conn.execute(
-                "SELECT entity_type, COUNT(*) FROM session_entities GROUP BY entity_type"
-            ).fetchall()
+            types = conn.execute("SELECT entity_type, COUNT(*) FROM session_entities GROUP BY entity_type").fetchall()
         except sqlite3.OperationalError:
             pytest.skip("session_entities table not yet created")
         finally:
@@ -269,12 +281,8 @@ class TestLiveDataVerification:
         assert len(names) > 0, f"Expected at least one person entity, got {names}"
 
 
-@pytest.mark.skipif(
-    not LIVE_TRANSCRIPTS.exists(),
-    reason="Live transcripts not available"
-)
+@pytest.mark.skipif(not LIVE_TRANSCRIPTS.exists(), reason="Live transcripts not available")
 class TestLiveTranscriptVerification:
-
     def test_can_extract_real_session(self):
         """Pick a real transcript and verify extraction works."""
         transcripts = list(iter_transcripts(str(Path.home())))[:1]
@@ -297,12 +305,8 @@ class TestLiveTranscriptVerification:
 HEALTH_DIR = Path.home() / ".claude" / "local" / "health"
 
 
-@pytest.mark.skipif(
-    not HEALTH_DIR.exists(),
-    reason="Health directory not yet created"
-)
+@pytest.mark.skipif(not HEALTH_DIR.exists(), reason="Health directory not yet created")
 class TestLiveHeartbeats:
-
     def test_heartbeat_files_exist(self):
         """At least the logging heartbeat should exist after Phase 1."""
         heartbeats = list(HEALTH_DIR.glob("*-heartbeat"))
@@ -313,6 +317,7 @@ class TestLiveHeartbeats:
         # Only check heartbeats from our HEARTBEAT_NAMES — other plugins may use
         # different formats (e.g. Unix timestamps)
         from hooks import log_event
+
         for name in log_event.HEARTBEAT_NAMES:
             hb = HEALTH_DIR / f"{name}-heartbeat"
             if hb.exists():

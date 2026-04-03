@@ -11,9 +11,9 @@ Usage:
     uv run scripts/embed_backfill.py [--project-path $HOME] [--all-types] [--batch-size 256]
 """
 
+import argparse
 import sys
 import time
-import argparse
 from pathlib import Path
 
 # Add plugin root to path
@@ -35,6 +35,7 @@ HIGH_VALUE_TYPES = (
     "Notification",
     "SessionStart",
 )
+
 
 def _get_storage_base(project_path: str) -> Path:
     """Compute storage base from project path."""
@@ -104,19 +105,20 @@ def backfill(project_path: str = "", all_types: bool = False, batch_size: int = 
             continue
 
         batch_texts.append(content)
-        batch_meta.append({
-            "event_id": event_id,
-            "session_id": session_id,
-            "event_type": event_type,
-            "content": content,
-            "timestamp": ts,
-        })
+        batch_meta.append(
+            {
+                "event_id": event_id,
+                "session_id": session_id,
+                "event_type": event_type,
+                "content": content,
+                "timestamp": ts,
+            }
+        )
 
         if len(batch_texts) >= batch_size:
             embeddings = emb_service.encode(batch_texts)
             batch_items = [
-                {"event_id": m["event_id"], "embedding": e, "metadata": m}
-                for e, m in zip(embeddings, batch_meta)
+                {"event_id": m["event_id"], "embedding": e, "metadata": m} for e, m in zip(embeddings, batch_meta)
             ]
             emb_storage.store_batch(batch_items)
             total_embedded += len(batch_texts)
@@ -130,8 +132,7 @@ def backfill(project_path: str = "", all_types: bool = False, batch_size: int = 
     if batch_texts:
         embeddings = emb_service.encode(batch_texts)
         batch_items = [
-            {"event_id": m["event_id"], "embedding": e, "metadata": m}
-            for e, m in zip(embeddings, batch_meta)
+            {"event_id": m["event_id"], "embedding": e, "metadata": m} for e, m in zip(embeddings, batch_meta)
         ]
         emb_storage.store_batch(batch_items)
         total_embedded += len(batch_texts)
@@ -147,8 +148,7 @@ def backfill(project_path: str = "", all_types: bool = False, batch_size: int = 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Backfill event embeddings")
-    parser.add_argument("--project-path", default=str(Path.home()),
-                        help="Project directory (default: $HOME)")
+    parser.add_argument("--project-path", default=str(Path.home()), help="Project directory (default: $HOME)")
     parser.add_argument("--all-types", action="store_true", help="Embed all event types, not just high-value")
     parser.add_argument("--batch-size", type=int, default=256, help="Batch size for encoding")
     args = parser.parse_args()

@@ -59,6 +59,7 @@ DEFAULT_CONFIG = {
 
 # ── Config ────────────────────────────────────────────────────────────
 
+
 def load_config(config_path: Path = CONFIG_PATH) -> dict:
     """Load pipeline thresholds from YAML config, with fallback defaults."""
     config = DEFAULT_CONFIG.copy()
@@ -79,6 +80,7 @@ def load_config(config_path: Path = CONFIG_PATH) -> dict:
 
 
 # ── Pipeline Checks ───────────────────────────────────────────────────
+
 
 def check_pipeline(
     name: str,
@@ -165,6 +167,7 @@ def check_koi_freshness(
 
     try:
         import psycopg2
+
         conn = psycopg2.connect(KOI_DSN, connect_timeout=5)
         cur = conn.cursor()
         cur.execute("SELECT MAX(updated_at) FROM bundles")
@@ -240,6 +243,7 @@ def check_all(
 
 
 # ── Scratchpad Alerting ───────────────────────────────────────────────
+
 
 def write_scratchpad_alert(
     critical_pipelines: list[dict],
@@ -328,19 +332,13 @@ def format_human(results: list[dict]) -> str:
 
 # ── Main ──────────────────────────────────────────────────────────────
 
+
 def main():
-    parser = argparse.ArgumentParser(
-        description="Check Legion pipeline heartbeats for staleness"
-    )
+    parser = argparse.ArgumentParser(description="Check Legion pipeline heartbeats for staleness")
+    parser.add_argument("--json", action="store_true", help="Output JSON array")
+    parser.add_argument("--quiet", action="store_true", help="No output, exit code only")
     parser.add_argument(
-        "--json", action="store_true", help="Output JSON array"
-    )
-    parser.add_argument(
-        "--quiet", action="store_true", help="No output, exit code only"
-    )
-    parser.add_argument(
-        "--config", type=Path, default=CONFIG_PATH,
-        help=f"Path to heartbeats.yml (default: {CONFIG_PATH})"
+        "--config", type=Path, default=CONFIG_PATH, help=f"Path to heartbeats.yml (default: {CONFIG_PATH})"
     )
     args = parser.parse_args()
 

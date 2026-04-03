@@ -9,28 +9,33 @@ Usage:
     echo '{"session_id":"...","data":{...}}' | python log_event.py -e EventType
 """
 
-import json
-import sys
 import argparse
-import os
+import contextlib
 import hashlib
+import json
 import mimetypes
-from pathlib import Path
-from datetime import datetime, timezone
-from collections import Counter
+import os
+import sys
 import uuid
 from base64 import b64decode
-from typing import Optional, List, Dict, Any, Tuple
+from collections import Counter
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
 
 # Cross-platform file locking
 if sys.platform == "win32":
+
     class _NoOpFcntl:
         """No-op file locking on Windows. See README for platform notes."""
+
         LOCK_EX = 0
         LOCK_UN = 0
+
         @staticmethod
         def flock(fd, op):
             pass
+
     fcntl = _NoOpFcntl()
 else:
     import fcntl
@@ -95,9 +100,7 @@ def write_heartbeat(name: str) -> None:
     try:
         HEALTH_DIR.mkdir(parents=True, exist_ok=True)
         heartbeat_path = HEALTH_DIR / f"{name}-heartbeat"
-        heartbeat_path.write_text(
-            f"{datetime.now(timezone.utc).isoformat()}\n"
-        )
+        heartbeat_path.write_text(f"{datetime.now(timezone.utc).isoformat()}\n")
     except Exception:
         pass  # Never fail on heartbeat write
 
@@ -126,7 +129,7 @@ def check_stale_heartbeats() -> list:
     return stale
 
 
-def get_storage_path(cwd: Optional[str] = None) -> Path:
+def get_storage_path(cwd: str | None = None) -> Path:
     """Get the centralized storage path for logging data.
 
     Logs are stored at ~/.claude/local/logging/<encoded-project-path>/
@@ -155,11 +158,8 @@ def get_images_dir(storage_path: Path, session_id: str) -> Path:
 
 
 def extract_images_from_prompt(
-    prompt: Any,
-    storage_path: Path,
-    session_id: str,
-    event_id: str
-) -> Tuple[str, List[Dict[str, Any]]]:
+    prompt: Any, storage_path: Path, session_id: str, event_id: str
+) -> tuple[str, list[dict[str, Any]]]:
     """
     Extract images from prompt content blocks and save to files.
 
@@ -233,13 +233,15 @@ def extract_images_from_prompt(
                             filepath.write_bytes(image_bytes)
 
                         # Add reference to list
-                        image_refs.append({
-                            "type": "image",
-                            "path": f"images/{session_id}/{filename}",
-                            "media_type": media_type,
-                            "size": len(image_bytes),
-                            "index": idx
-                        })
+                        image_refs.append(
+                            {
+                                "type": "image",
+                                "path": f"images/{session_id}/{filename}",
+                                "media_type": media_type,
+                                "size": len(image_bytes),
+                                "index": idx,
+                            }
+                        )
 
                     except Exception as e:
                         # Log error but don't fail - continue processing
@@ -249,18 +251,20 @@ def extract_images_from_prompt(
                 # URL-based images - just store the reference
                 url = source.get("url", "")
                 if url:
-                    image_refs.append({
-                        "type": "image",
-                        "url": url,
-                        "media_type": source.get("media_type", "image/jpeg"),
-                        "index": idx
-                    })
+                    image_refs.append(
+                        {
+                            "type": "image",
+                            "url": url,
+                            "media_type": source.get("media_type", "image/jpeg"),
+                            "index": idx,
+                        }
+                    )
 
     combined_text = "\n".join(text_parts) if text_parts else ""
     return combined_text, image_refs
 
 
-def get_agent_session_num(session_path: Path, source: Optional[str]) -> int:
+def get_agent_session_num(session_path: Path, source: str | None) -> int:
     """
     Calculate agent_session_num from JSONL content.
 
@@ -313,7 +317,7 @@ def append_event(session_path: Path, event: dict) -> None:
     append_events(session_path, [event])
 
 
-def extract_content(event_type: str, data: dict) -> Optional[str]:
+def extract_content(event_type: str, data: dict) -> str | None:
     """Extract human-readable content from event data."""
     if event_type == "UserPromptSubmit":
         prompt = data.get("prompt", "")
@@ -368,7 +372,7 @@ def extract_content(event_type: str, data: dict) -> Optional[str]:
             stdout = response.get("stdout", "") if isinstance(response, dict) else str(response)
             if stdout:
                 # Truncate long output
-                lines = stdout.strip().split('\n')
+                lines = stdout.strip().split("\n")
                 if len(lines) > 3:
                     return f"Output ({len(lines)} lines): {lines[0][:100]}..."
                 return f"Output: {stdout[:200]}"
@@ -451,10 +455,8 @@ def get_response(transcript_path: str) -> str:
 
 
 def extract_images_from_transcript(
-    transcript_path: str,
-    storage_path: Path,
-    session_id: str
-) -> Dict[int, List[Dict[str, Any]]]:
+    transcript_path: str, storage_path: Path, session_id: str
+) -> dict[int, list[dict[str, Any]]]:
     """
     Extract images from all user messages in Claude's transcript.
 
@@ -471,7 +473,7 @@ def extract_images_from_transcript(
         Dictionary mapping user message index (0-based) to list of image references.
         E.g., {0: [{"type": "image", "path": "...", ...}], 2: [...]}
     """
-    image_refs_by_msg: Dict[int, List[Dict[str, Any]]] = {}
+    image_refs_by_msg: dict[int, list[dict[str, Any]]] = {}
 
     try:
         transcript = Path(transcript_path)
@@ -546,13 +548,15 @@ def extract_images_from_transcript(
                             filepath.write_bytes(image_bytes)
 
                         # Record reference
-                        images_in_msg.append({
-                            "type": "image",
-                            "path": f"images/{session_id}/{filename}",
-                            "media_type": media_type,
-                            "size": len(image_bytes),
-                            "index": block_idx
-                        })
+                        images_in_msg.append(
+                            {
+                                "type": "image",
+                                "path": f"images/{session_id}/{filename}",
+                                "media_type": media_type,
+                                "size": len(image_bytes),
+                                "index": block_idx,
+                            }
+                        )
 
                     except Exception as e:
                         log_error(e, "TranscriptImageExtraction")
@@ -561,12 +565,14 @@ def extract_images_from_transcript(
                 elif source.get("type") == "url":
                     url = source.get("url", "")
                     if url:
-                        images_in_msg.append({
-                            "type": "image",
-                            "url": url,
-                            "media_type": source.get("media_type", "image/jpeg"),
-                            "index": block_idx
-                        })
+                        images_in_msg.append(
+                            {
+                                "type": "image",
+                                "url": url,
+                                "media_type": source.get("media_type", "image/jpeg"),
+                                "index": block_idx,
+                            }
+                        )
 
             # Store references for this user message if any images found
             if images_in_msg:
@@ -580,10 +586,7 @@ def extract_images_from_transcript(
     return image_refs_by_msg
 
 
-def update_session_with_images(
-    session_path: Path,
-    image_refs_by_msg: Dict[int, List[Dict[str, Any]]]
-) -> None:
+def update_session_with_images(session_path: Path, image_refs_by_msg: dict[int, list[dict[str, Any]]]) -> None:
     """
     Add image references to UserPromptSubmit events in the session file.
 
@@ -640,9 +643,7 @@ def update_session_with_images(
         log_error(e, "UpdateSessionImages")
 
 
-
-
-def get_subagent_info(transcript_path: str) -> Dict[str, Any]:
+def get_subagent_info(transcript_path: str) -> dict[str, Any]:
     """Extract model, tools, and response from subagent transcript."""
     try:
         lines = Path(transcript_path).read_text().strip().split("\n")
@@ -684,7 +685,7 @@ def get_subagent_info(transcript_path: str) -> Dict[str, Any]:
         return {"model": "", "tools": [], "response": ""}
 
 
-def extract_subagent_transcript(transcript_path: str) -> Dict[str, Any]:
+def extract_subagent_transcript(transcript_path: str) -> dict[str, Any]:
     """Extract full content and metadata from a subagent transcript JSONL file.
 
     Reads the subagent's native transcript and extracts:
@@ -754,8 +755,7 @@ def extract_subagent_transcript(transcript_path: str) -> Dict[str, Any]:
                     first_prompt = msg_content
                 elif isinstance(msg_content, list):
                     text_parts = [
-                        b.get("text", "") for b in msg_content
-                        if isinstance(b, dict) and b.get("type") == "text"
+                        b.get("text", "") for b in msg_content if isinstance(b, dict) and b.get("type") == "text"
                     ]
                     first_prompt = "\n".join(text_parts)
 
@@ -813,7 +813,7 @@ def extract_subagent_transcript(transcript_path: str) -> Dict[str, Any]:
         return empty
 
 
-def _format_token_meta(info: Dict[str, Any]) -> str:
+def _format_token_meta(info: dict[str, Any]) -> str:
     """Build the '— N turns, X.XK tokens' suffix for subagent labels."""
     parts = []
     if info.get("turn_count"):
@@ -825,7 +825,7 @@ def _format_token_meta(info: Dict[str, Any]) -> str:
     return f" — {', '.join(parts)}" if parts else ""
 
 
-def render_subagent_md(ts: str, agent_id: str, info: Dict[str, Any]) -> List[str]:
+def render_subagent_md(ts: str, agent_id: str, info: dict[str, Any]) -> list[str]:
     """Render a subagent block as collapsible markdown lines.
 
     Used by both in-exchange and out-of-exchange SubagentStop rendering paths.
@@ -840,15 +840,17 @@ def render_subagent_md(ts: str, agent_id: str, info: Dict[str, Any]) -> List[str
 
     block = ["<details>", f"<summary>{sa_label}</summary>", ""]
     if info.get("first_prompt"):
-        block.extend([
-            "<details>",
-            "<summary><strong>Prompt</strong></summary>",
-            "",
-            quote(info["first_prompt"]),
-            "",
-            "</details>",
-            "",
-        ])
+        block.extend(
+            [
+                "<details>",
+                "<summary><strong>Prompt</strong></summary>",
+                "",
+                quote(info["first_prompt"]),
+                "",
+                "</details>",
+                "",
+            ]
+        )
     if info.get("tools"):
         block.append(f"**Tools:** {len(info['tools'])}")
         block.extend(info["tools"])
@@ -862,9 +864,7 @@ def render_subagent_md(ts: str, agent_id: str, info: Dict[str, Any]) -> List[str
 def generate_markdown(jsonl_path: Path, md_path: Path, session_id: str) -> None:
     """Generate human-readable markdown report from JSONL source."""
     try:
-        events = [
-            json.loads(line) for line in jsonl_path.read_text().strip().split("\n") if line
-        ]
+        events = [json.loads(line) for line in jsonl_path.read_text().strip().split("\n") if line]
     except Exception:
         return
 
@@ -890,8 +890,8 @@ def generate_markdown(jsonl_path: Path, md_path: Path, session_id: str) -> None:
     # Process events into exchanges (prompt → stop cycles)
     prompt = None
     tools: Counter = Counter()
-    tool_details: List[str] = []
-    subagents: List[Dict] = []
+    tool_details: list[str] = []
+    subagents: list[dict] = []
 
     for e in events:
         t, d, ts = e["type"], e.get("data", {}), e["ts"][11:19]
@@ -956,15 +956,17 @@ def generate_markdown(jsonl_path: Path, md_path: Path, session_id: str) -> None:
 
                 if tools:
                     summary = ", ".join(f"{n} ({c})" for n, c in tools.most_common())
-                    lines.extend([
-                        "<details>",
-                        f"<summary>📦 {sum(tools.values())} tools: {summary}</summary>",
-                        "",
-                        *tool_details,
-                        "",
-                        "</details>",
-                        "",
-                    ])
+                    lines.extend(
+                        [
+                            "<details>",
+                            f"<summary>📦 {sum(tools.values())} tools: {summary}</summary>",
+                            "",
+                            *tool_details,
+                            "",
+                            "</details>",
+                            "",
+                        ]
+                    )
 
                 if subagents:
                     for sa in subagents:
@@ -973,15 +975,17 @@ def generate_markdown(jsonl_path: Path, md_path: Path, session_id: str) -> None:
                 prompt = None
 
             response = d.get("response", "")
-            lines.extend([
-                "<details>",
-                f"<summary>`{ts}` 🌲 Claude</summary>",
-                "",
-                quote(response),
-                "",
-                "</details>",
-                "",
-            ])
+            lines.extend(
+                [
+                    "<details>",
+                    f"<summary>`{ts}` 🌲 Claude</summary>",
+                    "",
+                    quote(response),
+                    "",
+                    "</details>",
+                    "",
+                ]
+            )
 
         elif t == "SubagentStop" and prompt is None:
             # Subagent outside of an exchange — use enriched data if available
@@ -1044,9 +1048,7 @@ def process_event(event_type: str, stdin_data: dict) -> dict:
         prompt = data.get("prompt")
         if isinstance(prompt, list):
             # Extract images and get combined text
-            text_content, image_refs = extract_images_from_prompt(
-                prompt, storage_path, session_id, event_id
-            )
+            text_content, image_refs = extract_images_from_prompt(prompt, storage_path, session_id, event_id)
             # Update data with extracted text (for searchability and display)
             data["prompt"] = text_content
             # Add image references if any were extracted
@@ -1123,9 +1125,7 @@ def process_event(event_type: str, stdin_data: dict) -> dict:
         # Claude Code doesn't pass image data to hooks, so we extract from the
         # transcript after the conversation turn is complete
         try:
-            image_refs_by_msg = extract_images_from_transcript(
-                transcript_path, storage_path, session_id
-            )
+            image_refs_by_msg = extract_images_from_transcript(transcript_path, storage_path, session_id)
             if image_refs_by_msg:
                 update_session_with_images(session_path, image_refs_by_msg)
         except Exception as e:
@@ -1144,10 +1144,8 @@ def process_event(event_type: str, stdin_data: dict) -> dict:
         "Notification",
         "PostCompact",
     ):
-        try:
+        with contextlib.suppress(Exception):
             generate_markdown(session_path, md_path, session_id)
-        except Exception:
-            pass  # Never fail on markdown generation
 
     # Incremental SQLite sync on turn boundaries (keeps FTS5 index fresh)
     # - Stop/SubagentStop/PostCompact: sync current session only (fast, mid-session)
@@ -1156,6 +1154,7 @@ def process_event(event_type: str, stdin_data: dict) -> dict:
     if event_type in ("Stop", "SubagentStop", "PostCompact"):
         try:
             from lib.storage import StorageManager
+
             sm = StorageManager(storage_path)
             try:
                 sm.sync_session(session_id)
@@ -1167,6 +1166,7 @@ def process_event(event_type: str, stdin_data: dict) -> dict:
     elif event_type in ("SessionStart", "SessionEnd"):
         try:
             from lib.storage import StorageManager
+
             sm = StorageManager(storage_path)
             try:
                 sm.sync_all()
@@ -1182,10 +1182,9 @@ def process_event(event_type: str, stdin_data: dict) -> dict:
         if summary:
             try:
                 from lib.session_capture import process_postcompact_summary
+
                 db_path = storage_path / "db" / "logging.db"
-                process_postcompact_summary(
-                    db_path, session_id, summary
-                )
+                process_postcompact_summary(db_path, session_id, summary)
             except Exception as e:
                 log_error(e, "PostCompactCapture")
 
@@ -1196,17 +1195,22 @@ def process_event(event_type: str, stdin_data: dict) -> dict:
             emb_db = storage_path / "db" / "embeddings.db"
             if emb_db.exists():
                 from lib.embeddings import EmbeddingService, EmbeddingStorage
+
                 svc = EmbeddingService()
                 if svc.is_available:
                     store = EmbeddingStorage(emb_db, dimension=svc.dimension)
                     try:
                         embedding = svc.encode([content])[0]
-                        store.store(event["id"], embedding, {
-                            "session_id": session_id,
-                            "event_type": event_type,
-                            "content": content,
-                            "timestamp": event["ts"],
-                        })
+                        store.store(
+                            event["id"],
+                            embedding,
+                            {
+                                "session_id": session_id,
+                                "event_type": event_type,
+                                "content": content,
+                                "timestamp": event["ts"],
+                            },
+                        )
                         # Heartbeat: embedding pipeline is healthy
                         write_heartbeat("embedding")
                     finally:
@@ -1248,13 +1252,9 @@ def main():
         if args.event == "SessionEnd":
             stale = check_stale_heartbeats()
             if stale:
-                warnings = ", ".join(
-                    f"{name} ({age_h}h stale)" for name, age_h in stale
-                )
+                warnings = ", ".join(f"{name} ({age_h}h stale)" for name, age_h in stale)
                 # Output JSON hook response with warning
-                result = {
-                    "systemMessage": f"[health] Stale pipelines: {warnings}"
-                }
+                result = {"systemMessage": f"[health] Stale pipelines: {warnings}"}
                 print(json.dumps(result))
 
     except Exception as e:

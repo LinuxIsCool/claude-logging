@@ -17,7 +17,6 @@ import json
 import os
 import sys
 from pathlib import Path
-from datetime import datetime, timezone
 
 
 def get_response(transcript_path: str) -> str:
@@ -51,18 +50,17 @@ def analyze_session(session_path: Path) -> list:
             transcript_path = event.get("data", {}).get("transcript_path")
 
             # Check if next event is AssistantResponse
-            has_response = (
-                i + 1 < len(events) and
-                events[i + 1].get("type") == "AssistantResponse"
-            )
+            has_response = i + 1 < len(events) and events[i + 1].get("type") == "AssistantResponse"
 
             if not has_response and transcript_path:
-                missing.append({
-                    "index": i,
-                    "stop_event": event,
-                    "transcript_path": transcript_path,
-                    "transcript_exists": Path(transcript_path).exists()
-                })
+                missing.append(
+                    {
+                        "index": i,
+                        "stop_event": event,
+                        "transcript_path": transcript_path,
+                        "transcript_exists": Path(transcript_path).exists(),
+                    }
+                )
         i += 1
 
     return missing
@@ -106,7 +104,7 @@ def repair_session(session_path: Path, dry_run: bool = True) -> dict:
 
         # Skip if this is the same response we just inserted (duplicate detection)
         if response == last_response:
-            preview = response[:40].replace('\n', ' ')
+            preview = response[:40].replace("\n", " ")
             print(f"  ⊘ Skipped duplicate: {preview}...")
             skipped += 1
             continue
@@ -128,7 +126,7 @@ def repair_session(session_path: Path, dry_run: bool = True) -> dict:
         events.insert(idx + 1, assistant_event)
         repaired += 1
 
-        preview = response[:60].replace('\n', ' ')
+        preview = response[:60].replace("\n", " ")
         print(f"  ✓ Added response ({len(response)} chars): {preview}...")
 
     if not dry_run and repaired > 0:
@@ -143,7 +141,7 @@ def repair_session(session_path: Path, dry_run: bool = True) -> dict:
         "missing": len(missing),
         "repaired": repaired,
         "failed": failed,
-        "skipped": skipped
+        "skipped": skipped,
     }
 
 
@@ -202,11 +200,13 @@ def main():
             total_failed += result["failed"]
             total_skipped += result.get("skipped", 0)
 
-    print(f"\n{'='*50}")
-    print(f"Summary: {total_missing} missing, {total_repaired} repaired, {total_skipped} skipped (duplicates), {total_failed} failed")
+    print(f"\n{'=' * 50}")
+    print(
+        f"Summary: {total_missing} missing, {total_repaired} repaired, {total_skipped} skipped (duplicates), {total_failed} failed"
+    )
 
     if args.dry_run and total_repaired > 0:
-        print(f"\nRun without --dry-run to apply repairs.")
+        print("\nRun without --dry-run to apply repairs.")
 
 
 if __name__ == "__main__":

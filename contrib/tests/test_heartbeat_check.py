@@ -24,8 +24,8 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "contrib"))
 import heartbeat_check as hbc
 
-
 # ── Fixtures ──────────────────────────────────────────────────────────
+
 
 @pytest.fixture
 def health_dir(tmp_path):
@@ -39,15 +39,19 @@ def health_dir(tmp_path):
 def config_file(tmp_path):
     """Create a temporary config file."""
     cfg = tmp_path / "heartbeats.yml"
-    cfg.write_text(yaml.dump({
-        "pipelines": {
-            "logging": {"warn_hours": 2, "description": "Test logging"},
-            "dreams": {"warn_hours": 168, "description": "Test dreams"},
-            "fast": {"warn_hours": 1, "description": "Fast pipeline"},
-        },
-        "critical_multiplier": 2,
-        "scratchpad_dir": str(tmp_path / "scratchpad"),
-    }))
+    cfg.write_text(
+        yaml.dump(
+            {
+                "pipelines": {
+                    "logging": {"warn_hours": 2, "description": "Test logging"},
+                    "dreams": {"warn_hours": 168, "description": "Test dreams"},
+                    "fast": {"warn_hours": 1, "description": "Fast pipeline"},
+                },
+                "critical_multiplier": 2,
+                "scratchpad_dir": str(tmp_path / "scratchpad"),
+            }
+        )
+    )
     return cfg
 
 
@@ -78,8 +82,8 @@ def write_hb(health_dir: Path, name: str, age_hours: float = 0):
 
 # ── TestLoadConfig ────────────────────────────────────────────────────
 
-class TestLoadConfig:
 
+class TestLoadConfig:
     def test_loads_yaml_config(self, config_file):
         config = hbc.load_config(config_file)
         assert "logging" in config["pipelines"]
@@ -103,8 +107,8 @@ class TestLoadConfig:
 
 # ── TestCheckPipeline ─────────────────────────────────────────────────
 
-class TestCheckPipeline:
 
+class TestCheckPipeline:
     def test_fresh_heartbeat(self, health_dir, default_config):
         write_hb(health_dir, "logging", age_hours=0)
         result = hbc.check_pipeline("logging", default_config, health_dir)
@@ -148,15 +152,14 @@ class TestCheckPipeline:
     def test_result_structure(self, health_dir, default_config):
         write_hb(health_dir, "logging")
         result = hbc.check_pipeline("logging", default_config, health_dir)
-        expected_keys = {"name", "status", "age_hours", "threshold_hours",
-                         "critical_hours", "last_seen", "description"}
+        expected_keys = {"name", "status", "age_hours", "threshold_hours", "critical_hours", "last_seen", "description"}
         assert set(result.keys()) == expected_keys
 
 
 # ── TestCheckKoiFreshness ─────────────────────────────────────────────
 
-class TestCheckKoiFreshness:
 
+class TestCheckKoiFreshness:
     def _mock_psycopg2(self):
         """Create a mock psycopg2 module for patching the local import."""
         return patch.dict("sys.modules", {"psycopg2": MagicMock()})
@@ -174,6 +177,7 @@ class TestCheckKoiFreshness:
 
         with self._mock_psycopg2():
             import psycopg2 as mock_pg
+
             mock_pg.connect = MagicMock(return_value=mock_conn)
             result = hbc.check_koi_freshness(config, health_dir)
 
@@ -188,6 +192,7 @@ class TestCheckKoiFreshness:
         }
         with self._mock_psycopg2():
             import psycopg2 as mock_pg
+
             mock_pg.connect = MagicMock(side_effect=Exception("Connection refused"))
             result = hbc.check_koi_freshness(config, health_dir)
 
@@ -206,6 +211,7 @@ class TestCheckKoiFreshness:
 
         with self._mock_psycopg2():
             import psycopg2 as mock_pg
+
             mock_pg.connect = MagicMock(return_value=mock_conn)
             result = hbc.check_koi_freshness(config, health_dir)
 
@@ -214,12 +220,11 @@ class TestCheckKoiFreshness:
 
 # ── TestScratchpadAlert ───────────────────────────────────────────────
 
-class TestScratchpadAlert:
 
+class TestScratchpadAlert:
     def test_writes_alert_for_critical_pipelines(self, tmp_path):
         critical = [
-            {"name": "logging", "age_hours": 10, "threshold_hours": 2,
-             "status": "critical", "description": "Test"},
+            {"name": "logging", "age_hours": 10, "threshold_hours": 2, "status": "critical", "description": "Test"},
         ]
         path = hbc.write_scratchpad_alert(critical, tmp_path)
         assert path is not None
@@ -235,8 +240,7 @@ class TestScratchpadAlert:
 
     def test_alert_frontmatter_format(self, tmp_path):
         critical = [
-            {"name": "test", "age_hours": 5, "threshold_hours": 2,
-             "status": "critical", "description": "Test"},
+            {"name": "test", "age_hours": 5, "threshold_hours": 2, "status": "critical", "description": "Test"},
         ]
         path = hbc.write_scratchpad_alert(critical, tmp_path)
         content = path.read_text()
@@ -246,8 +250,7 @@ class TestScratchpadAlert:
 
     def test_alert_filename_format(self, tmp_path):
         critical = [
-            {"name": "test", "age_hours": 5, "threshold_hours": 2,
-             "status": "critical", "description": "Test"},
+            {"name": "test", "age_hours": 5, "threshold_hours": 2, "status": "critical", "description": "Test"},
         ]
         path = hbc.write_scratchpad_alert(critical, tmp_path)
         assert "pipeline-health-alert.md" in path.name
@@ -257,8 +260,8 @@ class TestScratchpadAlert:
 
 # ── TestCheckAll ──────────────────────────────────────────────────────
 
-class TestCheckAll:
 
+class TestCheckAll:
     def test_returns_all_pipelines(self, health_dir):
         config = {
             "pipelines": {
@@ -290,16 +293,28 @@ class TestCheckAll:
 
 # ── TestFormatHuman ───────────────────────────────────────────────────
 
-class TestFormatHuman:
 
+class TestFormatHuman:
     def test_human_output_contains_pipelines(self):
         results = [
-            {"name": "logging", "status": "fresh", "age_hours": 0.5,
-             "threshold_hours": 2, "critical_hours": 4, "last_seen": "ts",
-             "description": "Test"},
-            {"name": "hippo", "status": "stale", "age_hours": 50,
-             "threshold_hours": 48, "critical_hours": 96, "last_seen": "ts",
-             "description": "Test"},
+            {
+                "name": "logging",
+                "status": "fresh",
+                "age_hours": 0.5,
+                "threshold_hours": 2,
+                "critical_hours": 4,
+                "last_seen": "ts",
+                "description": "Test",
+            },
+            {
+                "name": "hippo",
+                "status": "stale",
+                "age_hours": 50,
+                "threshold_hours": 48,
+                "critical_hours": 96,
+                "last_seen": "ts",
+                "description": "Test",
+            },
         ]
         output = hbc.format_human(results)
         assert "logging" in output
@@ -310,6 +325,7 @@ class TestFormatHuman:
 
 
 # ── TestBackwardCompatibility ─────────────────────────────────────────
+
 
 class TestBackwardCompatibility:
     """Ensure the existing functions in log_event.py still work."""

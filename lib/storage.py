@@ -4,24 +4,29 @@ Storage Layer for Logging Plugin
 Provides both JSONL (source of truth) and SQLite (indexed search) storage.
 """
 
-import sqlite3
 import json
+import sqlite3
 import sys
 import threading
-from pathlib import Path
+from collections.abc import Iterator
+from dataclasses import asdict, dataclass
+from dataclasses import fields as dc_fields
 from datetime import datetime, timezone
-from typing import Optional, Iterator, List
-from dataclasses import dataclass, asdict, fields as dc_fields
+from pathlib import Path
 
 # Cross-platform file locking
 if sys.platform == "win32":
+
     class _NoOpFcntl:
         """No-op file locking on Windows. See README for platform notes."""
+
         LOCK_EX = 0
         LOCK_UN = 0
+
         @staticmethod
         def flock(fd, op):
             pass
+
     fcntl = _NoOpFcntl()
 else:
     import fcntl
@@ -30,12 +35,13 @@ else:
 @dataclass
 class Session:
     """Session metadata."""
+
     id: str
     started_at: str
-    ended_at: Optional[str] = None
-    cwd: Optional[str] = None
-    summary: Optional[str] = None
-    tags: List[str] = None
+    ended_at: str | None = None
+    cwd: str | None = None
+    summary: str | None = None
+    tags: list[str] = None
     event_count: int = 0
     total_tokens: int = 0
 
@@ -47,14 +53,15 @@ class Session:
 @dataclass
 class Event:
     """Event record."""
+
     id: str
     session_id: str
     type: str
     ts: str
     agent_session_num: int = 0
     data: dict = None
-    content: Optional[str] = None
-    images: Optional[list] = None  # Image references for UserPromptSubmit events
+    content: str | None = None
+    images: list | None = None  # Image references for UserPromptSubmit events
 
     def __post_init__(self):
         if self.data is None:
@@ -94,12 +101,12 @@ class JSONLStorage:
         if not path.exists():
             return
 
-        with open(path, "r") as f:
+        with open(path) as f:
             for line in f:
                 if line.strip():
                     yield json.loads(line)
 
-    def list_sessions(self) -> List[str]:
+    def list_sessions(self) -> list[str]:
         """List all session IDs."""
         return [p.stem for p in self.sessions_dir.glob("*.jsonl")]
 
@@ -226,53 +233,63 @@ class SQLiteStorage:
     def insert_session(self, session: Session) -> None:
         """Insert or update a session."""
         with self._write_lock:
-            self.conn.execute("""
+            self.conn.execute(
+                """
                 INSERT OR REPLACE INTO sessions
                 (id, started_at, ended_at, cwd, summary, tags, event_count, total_tokens)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                session.id,
-                session.started_at,
-                session.ended_at,
-                session.cwd,
-                session.summary,
-                json.dumps(session.tags),
-                session.event_count,
-                session.total_tokens,
-            ))
+            """,
+                (
+                    session.id,
+                    session.started_at,
+                    session.ended_at,
+                    session.cwd,
+                    session.summary,
+                    json.dumps(session.tags),
+                    session.event_count,
+                    session.total_tokens,
+                ),
+            )
             self.conn.commit()
 
     def insert_event(self, event: Event) -> None:
         """Insert event and update FTS index."""
         with self._write_lock:
             # Insert event
-            self.conn.execute("""
+            self.conn.execute(
+                """
                 INSERT OR REPLACE INTO events
                 (id, session_id, type, ts, agent_session_num, data, content)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (
-                event.id,
-                event.session_id,
-                event.type,
-                event.ts,
-                event.agent_session_num,
-                json.dumps(event.data),
-                event.content,
-            ))
+            """,
+                (
+                    event.id,
+                    event.session_id,
+                    event.type,
+                    event.ts,
+                    event.agent_session_num,
+                    json.dumps(event.data),
+                    event.content,
+                ),
+            )
 
             # Insert into FTS if there's content
             if event.content:
-                self.conn.execute("""
+                self.conn.execute(
+                    """
                     INSERT OR REPLACE INTO events_fts
                     (event_id, session_id, type, content)
                     VALUES (?, ?, ?, ?)
-                """, (event.id, event.session_id, event.type, event.content))
+                """,
+                    (event.id, event.session_id, event.type, event.content),
+                )
 
             self.conn.commit()
 
-    def search(self, query: str, limit: int = 20) -> List[dict]:
+    def search(self, query: str, limit: int = 20) -> list[dict]:
         """Full-text search across events."""
-        cursor = self.conn.execute("""
+        cursor = self.conn.execute(
+            """
             SELECT
                 e.id,
                 e.session_id,
@@ -285,26 +302,21 @@ class SQLiteStorage:
             WHERE events_fts MATCH ?
             ORDER BY score
             LIMIT ?
-        """, (query, limit))
+        """,
+            (query, limit),
+        )
 
         return [dict(row) for row in cursor]
 
-    def get_session(self, session_id: str) -> Optional[dict]:
+    def get_session(self, session_id: str) -> dict | None:
         """Get session by ID."""
-        cursor = self.conn.execute(
-            "SELECT * FROM sessions WHERE id = ?",
-            (session_id,)
-        )
+        cursor = self.conn.execute("SELECT * FROM sessions WHERE id = ?", (session_id,))
         row = cursor.fetchone()
         return dict(row) if row else None
 
     def list_sessions(
-        self,
-        limit: int = 50,
-        offset: int = 0,
-        date_from: Optional[str] = None,
-        date_to: Optional[str] = None
-    ) -> List[dict]:
+        self, limit: int = 50, offset: int = 0, date_from: str | None = None, date_to: str | None = None
+    ) -> list[dict]:
         """List sessions with pagination and optional filtering."""
         sql = "SELECT * FROM sessions"
         params = []
@@ -328,26 +340,32 @@ class SQLiteStorage:
 
     def get_event_type_counts(self, session_id: str) -> dict:
         """Get event counts by type for a session."""
-        cursor = self.conn.execute("""
+        cursor = self.conn.execute(
+            """
             SELECT type, COUNT(*) as count
             FROM events
             WHERE session_id = ?
             GROUP BY type
-        """, (session_id,))
+        """,
+            (session_id,),
+        )
         return {row[0]: row[1] for row in cursor}
 
-    def get_event_type_counts_batch(self, session_ids: List[str]) -> dict:
+    def get_event_type_counts_batch(self, session_ids: list[str]) -> dict:
         """Get event counts by type for multiple sessions (batch query)."""
         if not session_ids:
             return {}
 
         placeholders = ",".join("?" * len(session_ids))
-        cursor = self.conn.execute(f"""
+        cursor = self.conn.execute(
+            f"""
             SELECT session_id, type, COUNT(*) as count
             FROM events
             WHERE session_id IN ({placeholders})
             GROUP BY session_id, type
-        """, session_ids)
+        """,
+            session_ids,
+        )
 
         result = {}
         for row in cursor:
@@ -373,27 +391,27 @@ class SQLiteStorage:
 
     def get_sync_position(self, session_id: str) -> int:
         """Get last synced position for a session."""
-        cursor = self.conn.execute(
-            "SELECT last_position FROM sync_state WHERE session_id = ?",
-            (session_id,)
-        )
+        cursor = self.conn.execute("SELECT last_position FROM sync_state WHERE session_id = ?", (session_id,))
         row = cursor.fetchone()
         return row[0] if row else 0
 
     def update_sync_position(self, session_id: str, position: int) -> None:
         """Update sync position for a session."""
         with self._write_lock:
-            self.conn.execute("""
+            self.conn.execute(
+                """
                 INSERT OR REPLACE INTO sync_state (session_id, last_position, last_sync)
                 VALUES (?, ?, ?)
-            """, (session_id, position, datetime.now(timezone.utc).isoformat()))
+            """,
+                (session_id, position, datetime.now(timezone.utc).isoformat()),
+            )
             self.conn.commit()
 
     def get_recent_events(
         self,
         limit: int = 50,
-        event_types: Optional[List[str]] = None,
-    ) -> List[dict]:
+        event_types: list[str] | None = None,
+    ) -> list[dict]:
         """Get recent events with optional type filter."""
         sql = """
             SELECT id, session_id, type, ts, content
@@ -450,7 +468,7 @@ class StorageManager:
         first_event_data = None
         path = self.jsonl.get_session_path(session_id)
 
-        with open(path, "r") as f:
+        with open(path) as f:
             f.seek(last_pos)
             for line in f:
                 if line.strip():
@@ -475,17 +493,20 @@ class StorageManager:
 
         return events_synced
 
-    def _update_session_from_events(self, session_id: str, first_event_data: Optional[dict] = None) -> None:
+    def _update_session_from_events(self, session_id: str, first_event_data: dict | None = None) -> None:
         """Create or update session record from events table."""
         # Get aggregated stats from events
-        cursor = self.sqlite.conn.execute("""
+        cursor = self.sqlite.conn.execute(
+            """
             SELECT
                 MIN(ts) as started_at,
                 MAX(ts) as ended_at,
                 COUNT(*) as event_count
             FROM events
             WHERE session_id = ?
-        """, (session_id,))
+        """,
+            (session_id,),
+        )
         row = cursor.fetchone()
 
         if not row or not row[0]:
@@ -493,22 +514,25 @@ class StorageManager:
 
         # Extract cwd from first event data if available
         cwd = None
-        if first_event_data and isinstance(first_event_data.get('data'), dict):
-            cwd = first_event_data['data'].get('cwd')
+        if first_event_data and isinstance(first_event_data.get("data"), dict):
+            cwd = first_event_data["data"].get("cwd")
 
         # If we don't have cwd from first_event_data, try to get from existing events
         if not cwd:
-            cursor = self.sqlite.conn.execute("""
+            cursor = self.sqlite.conn.execute(
+                """
                 SELECT data FROM events
                 WHERE session_id = ? AND type = 'SessionStart'
                 LIMIT 1
-            """, (session_id,))
+            """,
+                (session_id,),
+            )
             data_row = cursor.fetchone()
             if data_row and data_row[0]:
                 try:
                     event_data = json.loads(data_row[0])
-                    cwd = event_data.get('cwd')
-                except:
+                    cwd = event_data.get("cwd")
+                except (json.JSONDecodeError, KeyError):
                     pass
 
         session = Session(
@@ -527,17 +551,19 @@ class StorageManager:
             total += self.sync_session(session_id)
         return total
 
-    def search(self, query: str, limit: int = 20) -> List[dict]:
+    def search(self, query: str, limit: int = 20) -> list[dict]:
         """Search across all events."""
         return self.sqlite.search(query, limit)
 
     def get_search_service(self):
         """Get a fully-configured SearchService with semantic search if available."""
         from .search import SearchService
+
         emb_svc = None
         emb_store = None
         try:
             from .embeddings import EmbeddingService, EmbeddingStorage
+
             emb_db = self.base_path / "db" / "embeddings.db"
             if emb_db.exists():
                 emb_svc = EmbeddingService()
@@ -552,6 +578,6 @@ class StorageManager:
 
     def close(self):
         """Close all connections."""
-        if hasattr(self, '_embedding_storage') and self._embedding_storage:
+        if hasattr(self, "_embedding_storage") and self._embedding_storage:
             self._embedding_storage.close()
         self.sqlite.close()

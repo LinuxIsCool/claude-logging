@@ -22,14 +22,8 @@ from lib.storage import StorageManager
 
 def main():
     parser = argparse.ArgumentParser(description="Backfill JSONL → SQLite sync")
-    parser.add_argument(
-        "--project-path", default=str(Path.home()),
-        help="Project directory (default: $HOME)"
-    )
-    parser.add_argument(
-        "--dry-run", action="store_true",
-        help="Show what would be synced without syncing"
-    )
+    parser.add_argument("--project-path", default=str(Path.home()), help="Project directory (default: $HOME)")
+    parser.add_argument("--dry-run", action="store_true", help="Show what would be synced without syncing")
     args = parser.parse_args()
 
     encoded = encode_project_path(args.project_path)
@@ -86,7 +80,7 @@ def main():
             if (i + 1) % 50 == 0:
                 elapsed = time.time() - start
                 rate = (i + 1) / elapsed
-                print(f"  [{i+1}/{len(unsynced)}] {total_events} events, {rate:.1f} sessions/sec")
+                print(f"  [{i + 1}/{len(unsynced)}] {total_events} events, {rate:.1f} sessions/sec")
         except Exception as e:
             errors += 1
             print(f"  ERROR syncing {session_id}: {e}")
@@ -109,6 +103,7 @@ def main():
     health_dir = Path.home() / ".claude" / "local" / "health"
     health_dir.mkdir(parents=True, exist_ok=True)
     from datetime import datetime, timezone
+
     hb = health_dir / "logging-heartbeat"
     hb.write_text(f"{datetime.now(timezone.utc).isoformat()}\n")
     print(f"  Heartbeat written: {hb}")

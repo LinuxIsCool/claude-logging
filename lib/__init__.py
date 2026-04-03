@@ -7,8 +7,8 @@ This module provides core functionality for the logging plugin:
 - Embeddings: Local embedding generation
 """
 
-from pathlib import Path
 import os
+from pathlib import Path
 
 __version__ = "1.0.0"
 

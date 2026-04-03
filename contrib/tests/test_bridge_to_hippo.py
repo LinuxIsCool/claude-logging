@@ -10,11 +10,10 @@ and the graph query parameter formatting.
 # dependencies = ["pytest"]
 # ///
 
-import json
 import sqlite3
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -77,7 +76,6 @@ from bridge_to_hippo import (
 
 
 class TestGetSessionEntities:
-
     def test_min_sessions_filter(self, db_path):
         entities = get_session_entities(db_path, min_sessions=2)
         # Alice appears in 4 sessions, Bob in 3, TestVenture in 2, claude-hippo in 2
@@ -109,7 +107,6 @@ class TestGetSessionEntities:
 
 
 class TestGetSessionEntityPairs:
-
     def test_co_occurrence_pairs(self, db_path):
         pairs = get_session_entity_pairs(db_path)
         # Alice and Bob co-occur in sess-001, sess-002, sess-004 = 3 sessions
@@ -126,15 +123,19 @@ class TestGetSessionEntityPairs:
 
 
 class TestGraphQuery:
-
     def test_cypher_prefix_format(self):
         """Verify parameter encoding uses CYPHER prefix, not JSON args."""
         mock_redis = MagicMock()
         mock_redis.execute_command = MagicMock(return_value=None)
 
-        graph_query(mock_redis, "MATCH (n) RETURN n", params={
-            "name": "Alice", "count": 42,
-        })
+        graph_query(
+            mock_redis,
+            "MATCH (n) RETURN n",
+            params={
+                "name": "Alice",
+                "count": 42,
+            },
+        )
 
         call_args = mock_redis.execute_command.call_args
         query_str = call_args[0][2]  # 3rd positional arg is the query

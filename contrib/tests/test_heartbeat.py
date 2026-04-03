@@ -12,7 +12,6 @@ Tests heartbeat writing, staleness detection, and the health directory setup.
 import os
 import sys
 import time
-from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -41,7 +40,6 @@ HEARTBEAT_MAX_AGE_SECONDS = log_event_mod.HEARTBEAT_MAX_AGE_SECONDS
 
 
 class TestWriteHeartbeat:
-
     def test_creates_heartbeat_file(self, tmp_path):
         with patch.object(log_event_mod, "HEALTH_DIR", tmp_path):
             write_heartbeat("logging")
@@ -75,7 +73,6 @@ class TestWriteHeartbeat:
 
 
 class TestCheckStaleHeartbeats:
-
     def test_no_health_dir(self, tmp_path):
         nonexistent = tmp_path / "nope"
         with patch.object(log_event_mod, "HEALTH_DIR", nonexistent):
@@ -123,7 +120,7 @@ class TestCheckStaleHeartbeats:
 
     def test_new_heartbeat_names_recognized(self, tmp_path):
         """Verify koi and journal are in HEARTBEAT_NAMES after task-047 update."""
-        assert "koi" in HEARTBEAT_MAX_AGE_SECONDS.__class__.__module__ or True
+        assert True  # Placeholder — see direct check below
         # Direct check on the constant
         assert "koi" in log_event_mod.HEARTBEAT_NAMES
         assert "journal" in log_event_mod.HEARTBEAT_NAMES

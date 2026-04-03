@@ -6,9 +6,8 @@ using Reciprocal Rank Fusion (RRF) to merge results.
 """
 
 import sqlite3
-from dataclasses import dataclass
-from typing import List, Optional, Tuple
 import time
+from dataclasses import dataclass
 
 from .storage import SQLiteStorage
 
@@ -25,6 +24,7 @@ def _sanitize_fts_query(query: str) -> str:
 @dataclass
 class SearchResult:
     """Search result with scoring."""
+
     event_id: str
     session_id: str
     event_type: str
@@ -48,10 +48,10 @@ class SearchService:
         self,
         query: str,
         limit: int = 20,
-        event_types: Optional[List[str]] = None,
-        date_from: Optional[str] = None,
-        date_to: Optional[str] = None
-    ) -> List[SearchResult]:
+        event_types: list[str] | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ) -> list[SearchResult]:
         """FTS5 keyword search with BM25 ranking."""
         if not query or not query.strip():
             return []
@@ -97,15 +97,17 @@ class SearchService:
 
         results = []
         for row in cursor:
-            results.append(SearchResult(
-                event_id=row[0],
-                session_id=row[1],
-                event_type=row[2],
-                timestamp=row[3],
-                content=row[4] or "",
-                score=abs(row[5]),  # BM25 returns negative scores
-                source="keyword"
-            ))
+            results.append(
+                SearchResult(
+                    event_id=row[0],
+                    session_id=row[1],
+                    event_type=row[2],
+                    timestamp=row[3],
+                    content=row[4] or "",
+                    score=abs(row[5]),  # BM25 returns negative scores
+                    source="keyword",
+                )
+            )
 
         return results
 
@@ -113,10 +115,10 @@ class SearchService:
         self,
         query: str,
         limit: int = 20,
-        event_types: Optional[List[str]] = None,
-        date_from: Optional[str] = None,
-        date_to: Optional[str] = None
-    ) -> List[SearchResult]:
+        event_types: list[str] | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ) -> list[SearchResult]:
         """
         Semantic search using embeddings.
         Falls back to empty results if embeddings not available.
@@ -135,19 +137,15 @@ class SearchService:
         # Need both an encoder and a storage backend
         if self.embedding_service is None or self.embedding_storage is None:
             # Backward compat: single object with encode+search
-            if self.embeddings is not None and hasattr(self.embeddings, 'search'):
+            if self.embeddings is not None and hasattr(self.embeddings, "search"):
                 query_embedding = self.embeddings.encode([query])[0]
-                results = self.embeddings.search(
-                    query_embedding, limit=limit, filters=search_filters
-                )
+                results = self.embeddings.search(query_embedding, limit=limit, filters=search_filters)
             else:
                 return []
         else:
             # Standard path: separate encoder + storage
             query_embedding = self.embedding_service.encode([query])[0]
-            results = self.embedding_storage.search(
-                query_embedding, limit=limit, filters=search_filters
-            )
+            results = self.embedding_storage.search(query_embedding, limit=limit, filters=search_filters)
 
         return [
             SearchResult(
@@ -157,17 +155,14 @@ class SearchService:
                 content=r["content"],
                 score=r["score"],
                 timestamp=r["timestamp"],
-                source="semantic"
+                source="semantic",
             )
             for r in results
         ]
 
     def reciprocal_rank_fusion(
-        self,
-        keyword_results: List[SearchResult],
-        semantic_results: List[SearchResult],
-        k: int = 60
-    ) -> List[SearchResult]:
+        self, keyword_results: list[SearchResult], semantic_results: list[SearchResult], k: int = 60
+    ) -> list[SearchResult]:
         """
         Combine results using Reciprocal Rank Fusion.
 
@@ -198,15 +193,17 @@ class SearchService:
         results = []
         for event_id in sorted_ids:
             result = result_map[event_id]
-            results.append(SearchResult(
-                event_id=result.event_id,
-                session_id=result.session_id,
-                event_type=result.event_type,
-                content=result.content,
-                score=scores[event_id],
-                timestamp=result.timestamp,
-                source="hybrid"
-            ))
+            results.append(
+                SearchResult(
+                    event_id=result.event_id,
+                    session_id=result.session_id,
+                    event_type=result.event_type,
+                    content=result.content,
+                    score=scores[event_id],
+                    timestamp=result.timestamp,
+                    source="hybrid",
+                )
+            )
 
         return results
 
@@ -214,11 +211,11 @@ class SearchService:
         self,
         query: str,
         limit: int = 20,
-        event_types: Optional[List[str]] = None,
-        date_from: Optional[str] = None,
-        date_to: Optional[str] = None,
-        use_semantic: bool = True
-    ) -> Tuple[List[SearchResult], float]:
+        event_types: list[str] | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        use_semantic: bool = True,
+    ) -> tuple[list[SearchResult], float]:
         """
         Perform hybrid search combining keyword and semantic results.
         Returns (results, time_ms).
@@ -231,29 +228,22 @@ class SearchService:
             limit=limit * 2,  # Get more for fusion
             event_types=event_types,
             date_from=date_from,
-            date_to=date_to
+            date_to=date_to,
         )
 
         # Get semantic results if enabled and available
         semantic_results = []
         if use_semantic and self.embeddings is not None:
             semantic_results = self.semantic_search(
-                query,
-                limit=limit * 2,
-                event_types=event_types,
-                date_from=date_from,
-                date_to=date_to
+                query, limit=limit * 2, event_types=event_types, date_from=date_from, date_to=date_to
             )
 
         # Fuse results
         if semantic_results:
-            results = self.reciprocal_rank_fusion(
-                keyword_results, semantic_results
-            )
+            results = self.reciprocal_rank_fusion(keyword_results, semantic_results)
         else:
             results = keyword_results
 
         elapsed_ms = (time.perf_counter() - start_time) * 1000
 
         return results[:limit], elapsed_ms
-

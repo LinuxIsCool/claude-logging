@@ -21,7 +21,6 @@ import json
 import sqlite3
 import sys
 import time
-from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -51,9 +50,7 @@ def graph_query(r, query, params=None):
     CYPHER key1="value1" key2=42 <actual cypher>
     """
     if params:
-        param_str = "CYPHER " + " ".join(
-            f"{k}={json.dumps(v)}" for k, v in params.items()
-        ) + " "
+        param_str = "CYPHER " + " ".join(f"{k}={json.dumps(v)}" for k, v in params.items()) + " "
         query = param_str + query
     return r.execute_command("GRAPH.QUERY", HIPPO_GRAPH, query)
 
@@ -64,7 +61,8 @@ def get_session_entities(db_path: Path, min_sessions: int = 2):
     Returns dict of {entity_name: {type, sessions, total_mentions}}
     """
     conn = sqlite3.connect(str(db_path), timeout=10)
-    cursor = conn.execute("""
+    cursor = conn.execute(
+        """
         SELECT
             entity_name,
             entity_type,
@@ -75,7 +73,9 @@ def get_session_entities(db_path: Path, min_sessions: int = 2):
         GROUP BY entity_name
         HAVING session_count >= ?
         ORDER BY session_count DESC
-    """, (min_sessions,))
+    """,
+        (min_sessions,),
+    )
 
     entities = {}
     for row in cursor:
@@ -135,9 +135,7 @@ def ensure_entity_in_hippo(r, name: str, entity_type: str, session_count: int, m
     ON MATCH SET n.session_count = $sc, n.mention_count = $mc, n.last_accessed = $ts
     """
     try:
-        graph_query(r, cypher, params={
-            "name": name, "ts": ts, "sc": session_count, "mc": mention_count
-        })
+        graph_query(r, cypher, params={"name": name, "ts": ts, "sc": session_count, "mc": mention_count})
         return True
     except redis.exceptions.RedisError as e:
         print(f"  Warning: Failed to ensure {name}: {e}", file=sys.stderr)
@@ -155,10 +153,11 @@ def create_cooccurrence_edge(r, e1: str, e2: str, shared_sessions: int):
     ON MATCH SET r.weight = $weight, r.shared_sessions = $ss, r.last_accessed = $ts
     """
     try:
-        graph_query(r, cypher, params={
-            "e1": e1, "e2": e2, "weight": min(1.0, shared_sessions / 20.0),
-            "ss": shared_sessions, "ts": ts
-        })
+        graph_query(
+            r,
+            cypher,
+            params={"e1": e1, "e2": e2, "weight": min(1.0, shared_sessions / 20.0), "ss": shared_sessions, "ts": ts},
+        )
         return True
     except redis.exceptions.RedisError as e:
         print(f"  Warning: Failed to link {e1} ↔ {e2}: {e}", file=sys.stderr)
@@ -188,7 +187,7 @@ def main():
         print("\n=== Top 20 entities ===")
         for name, info in list(entities.items())[:20]:
             print(f"  {name} ({info['type']}): {info['sessions']} sessions, {info['mentions']} mentions")
-        print(f"\n=== Top 20 co-occurrence pairs ===")
+        print("\n=== Top 20 co-occurrence pairs ===")
         for e1, e2, ss in pairs[:20]:
             print(f"  {e1} ↔ {e2}: {ss} shared sessions")
         return

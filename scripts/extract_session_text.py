@@ -23,17 +23,18 @@ Usage:
 import argparse
 import json
 import sys
-from dataclasses import dataclass, asdict
+from collections.abc import Iterator
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Iterator, Optional
 
 
 @dataclass
 class SessionMessage:
     """A single extracted message from a session transcript."""
-    role: str          # "user" or "assistant"
-    text: str          # Extracted plain text
-    index: int         # Message index within session (0-based)
+
+    role: str  # "user" or "assistant"
+    text: str  # Extracted plain text
+    index: int  # Message index within session (0-based)
     has_tool_results: bool = False
     tool_names: list = None
 
@@ -45,9 +46,10 @@ class SessionMessage:
 @dataclass
 class SessionText:
     """Extracted text from an entire session."""
+
     session_id: str
     transcript_path: str
-    messages: list       # List of SessionMessage
+    messages: list  # List of SessionMessage
     user_message_count: int
     assistant_message_count: int
     total_chars: int
@@ -55,16 +57,12 @@ class SessionText:
     @property
     def user_text(self) -> str:
         """All user text concatenated."""
-        return "\n\n".join(
-            m.text for m in self.messages if m.role == "user" and m.text
-        )
+        return "\n\n".join(m.text for m in self.messages if m.role == "user" and m.text)
 
     @property
     def assistant_text(self) -> str:
         """All assistant text concatenated."""
-        return "\n\n".join(
-            m.text for m in self.messages if m.role == "assistant" and m.text
-        )
+        return "\n\n".join(m.text for m in self.messages if m.role == "assistant" and m.text)
 
     @property
     def full_text(self) -> str:
@@ -141,7 +139,7 @@ def extract_tool_names(content) -> list:
     return names
 
 
-def extract_session(transcript_path: Path) -> Optional[SessionText]:
+def extract_session(transcript_path: Path) -> SessionText | None:
     """Extract all text from a session transcript JSONL file.
 
     Args:
@@ -162,7 +160,7 @@ def extract_session(transcript_path: Path) -> Optional[SessionText]:
     msg_index = 0
 
     try:
-        with open(transcript_path, "r", encoding="utf-8") as fh:
+        with open(transcript_path, encoding="utf-8") as fh:
             for line in fh:
                 line = line.strip()
                 if not line:
@@ -183,19 +181,20 @@ def extract_session(transcript_path: Path) -> Optional[SessionText]:
 
                     if isinstance(content, list):
                         has_tools = any(
-                            isinstance(b, dict) and b.get("type") in ("tool_result", "tool_use")
-                            for b in content
+                            isinstance(b, dict) and b.get("type") in ("tool_result", "tool_use") for b in content
                         )
                         tool_names = extract_tool_names(content)
 
                     if text.strip():
-                        messages.append(SessionMessage(
-                            role="user",
-                            text=text,
-                            index=msg_index,
-                            has_tool_results=has_tools,
-                            tool_names=tool_names,
-                        ))
+                        messages.append(
+                            SessionMessage(
+                                role="user",
+                                text=text,
+                                index=msg_index,
+                                has_tool_results=has_tools,
+                                tool_names=tool_names,
+                            )
+                        )
                         user_count += 1
                         total_chars += len(text)
                     msg_index += 1
@@ -205,13 +204,15 @@ def extract_session(transcript_path: Path) -> Optional[SessionText]:
                     tool_names = extract_tool_names(content)
 
                     if text.strip():
-                        messages.append(SessionMessage(
-                            role="assistant",
-                            text=text,
-                            index=msg_index,
-                            has_tool_results=False,
-                            tool_names=tool_names,
-                        ))
+                        messages.append(
+                            SessionMessage(
+                                role="assistant",
+                                text=text,
+                                index=msg_index,
+                                has_tool_results=False,
+                                tool_names=tool_names,
+                            )
+                        )
                         assistant_count += 1
                         total_chars += len(text)
                     msg_index += 1
@@ -247,29 +248,12 @@ def iter_transcripts(project_dir: str) -> Iterator[Path]:
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Extract searchable text from Claude Code session transcripts"
-    )
-    parser.add_argument(
-        "transcript", nargs="?",
-        help="Path to transcript JSONL file"
-    )
-    parser.add_argument(
-        "--all", action="store_true",
-        help="Process all transcripts for the project"
-    )
-    parser.add_argument(
-        "--project-dir", default=str(Path.home()),
-        help="Project directory (default: $HOME)"
-    )
-    parser.add_argument(
-        "--json", action="store_true",
-        help="Output as structured JSON"
-    )
-    parser.add_argument(
-        "--stats-only", action="store_true",
-        help="Output only statistics, not full text"
-    )
+    parser = argparse.ArgumentParser(description="Extract searchable text from Claude Code session transcripts")
+    parser.add_argument("transcript", nargs="?", help="Path to transcript JSONL file")
+    parser.add_argument("--all", action="store_true", help="Process all transcripts for the project")
+    parser.add_argument("--project-dir", default=str(Path.home()), help="Project directory (default: $HOME)")
+    parser.add_argument("--json", action="store_true", help="Output as structured JSON")
+    parser.add_argument("--stats-only", action="store_true", help="Output only statistics, not full text")
     args = parser.parse_args()
 
     if args.transcript:
@@ -321,10 +305,11 @@ def main():
                 }
                 print(json.dumps(out))
             else:
-                print(f"{result.session_id}: {result.user_message_count}u/{result.assistant_message_count}a, {result.total_chars:,} chars")
+                print(
+                    f"{result.session_id}: {result.user_message_count}u/{result.assistant_message_count}a, {result.total_chars:,} chars"
+                )
 
-        print(f"\nTotal: {total_sessions} sessions, {total_messages} messages, {total_chars:,} chars",
-              file=sys.stderr)
+        print(f"\nTotal: {total_sessions} sessions, {total_messages} messages, {total_chars:,} chars", file=sys.stderr)
 
     else:
         parser.print_help()

@@ -15,10 +15,7 @@ Tests:
 
 import json
 import sys
-import tempfile
 from pathlib import Path
-
-import pytest
 
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PLUGIN_ROOT))
@@ -32,7 +29,7 @@ class TestEventSchemaEvolution:
 
     def test_unknown_fields_ignored(self, tmp_path):
         """Syncing a session with future fields should work, not crash."""
-        from lib.storage import StorageManager, Event, _EVENT_FIELDS
+        from lib.storage import StorageManager
 
         base = tmp_path / "test-project"
         sm = StorageManager(base)
@@ -60,10 +57,7 @@ class TestEventSchemaEvolution:
             assert synced == 1
 
             # Verify the event was stored (without the extra fields)
-            cursor = sm.sqlite.conn.execute(
-                "SELECT id, type, content FROM events WHERE session_id = ?",
-                (session_id,)
-            )
+            cursor = sm.sqlite.conn.execute("SELECT id, type, content FROM events WHERE session_id = ?", (session_id,))
             row = cursor.fetchone()
             assert row is not None
             assert row[0] == "evt_test001"
@@ -75,6 +69,7 @@ class TestEventSchemaEvolution:
     def test_known_fields_set(self):
         """_EVENT_FIELDS should contain all Event dataclass fields."""
         from lib.storage import _EVENT_FIELDS
+
         expected = {"id", "session_id", "type", "ts", "agent_session_num", "data", "content", "images"}
         assert expected == _EVENT_FIELDS
 
@@ -88,16 +83,18 @@ class TestFcntlShim:
     def test_fcntl_available_in_log_event(self):
         """log_event.py should have a working fcntl (real or shim)."""
         from hooks import log_event
-        assert hasattr(log_event, 'fcntl')
-        assert hasattr(log_event.fcntl, 'flock')
-        assert hasattr(log_event.fcntl, 'LOCK_EX')
-        assert hasattr(log_event.fcntl, 'LOCK_UN')
+
+        assert hasattr(log_event, "fcntl")
+        assert hasattr(log_event.fcntl, "flock")
+        assert hasattr(log_event.fcntl, "LOCK_EX")
+        assert hasattr(log_event.fcntl, "LOCK_UN")
 
     def test_fcntl_available_in_storage(self):
         """storage.py should have a working fcntl (real or shim)."""
         from lib import storage
-        assert hasattr(storage, 'fcntl')
-        assert hasattr(storage.fcntl, 'flock')
+
+        assert hasattr(storage, "fcntl")
+        assert hasattr(storage.fcntl, "flock")
 
 
 # ── Agent session number counting ───────────────────────────────────
@@ -133,9 +130,7 @@ class TestAgentSessionNum:
         events = [
             {
                 "type": "UserPromptSubmit",
-                "data": {
-                    "prompt": 'The event has "source": "compact" in its data field'
-                },
+                "data": {"prompt": 'The event has "source": "compact" in its data field'},
             },
         ]
         with open(session_path, "w") as f:
@@ -171,6 +166,7 @@ class TestModuleConstants:
     def test_allowed_image_types_is_module_level(self):
         """ALLOWED_IMAGE_TYPES should be importable from hooks.log_event."""
         from hooks.log_event import ALLOWED_IMAGE_TYPES
+
         assert isinstance(ALLOWED_IMAGE_TYPES, set)
         assert "image/png" in ALLOWED_IMAGE_TYPES
         assert "image/jpeg" in ALLOWED_IMAGE_TYPES
@@ -178,5 +174,6 @@ class TestModuleConstants:
     def test_heartbeat_names_is_tuple(self):
         """HEARTBEAT_NAMES should default to just 'logging' for public users."""
         from hooks.log_event import HEARTBEAT_NAMES
+
         assert isinstance(HEARTBEAT_NAMES, tuple)
         assert "logging" in HEARTBEAT_NAMES

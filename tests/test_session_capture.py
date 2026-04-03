@@ -9,10 +9,8 @@ Tests the lightweight NER, summary upsert logic, entity dedup, and batch extract
 # dependencies = ["pytest"]
 # ///
 
-import json
 import sqlite3
 import sys
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -23,10 +21,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 from session_capture import (
     extract_entities_lightweight,
-    store_session_summary,
     process_postcompact_summary,
+    store_session_summary,
 )
-
 
 # ── Schema setup ──────────────────────────────────────────────────────
 
@@ -63,8 +60,8 @@ def db_path(tmp_path):
 
 # ── extract_entities_lightweight ──────────────────────────────────────
 
-class TestExtractEntitiesLightweight:
 
+class TestExtractEntitiesLightweight:
     def test_person_extraction(self):
         text = "Alice met with Bob Smith and Carol White about the project timeline."
         entities = extract_entities_lightweight(text)
@@ -75,6 +72,7 @@ class TestExtractEntitiesLightweight:
         """Venture extraction depends on ~/.claude/local/ventures/ at runtime.
         Skip if no ventures are configured on this machine."""
         from session_capture import VENTURE_PATTERNS
+
         if not VENTURE_PATTERNS:
             pytest.skip("No venture patterns configured on this machine")
         # Just verify the extraction machinery works — any venture match counts
@@ -88,6 +86,7 @@ class TestExtractEntitiesLightweight:
         """Project extraction depends on installed plugins at runtime.
         Skip if no plugins are installed on this machine."""
         from session_capture import PROJECT_PATTERNS
+
         if not PROJECT_PATTERNS:
             pytest.skip("No project patterns configured on this machine")
         text = "Working on claude-logging today."
@@ -149,19 +148,18 @@ class TestExtractEntitiesLightweight:
 
 # ── store_session_summary ─────────────────────────────────────────────
 
-class TestStoreSessionSummary:
 
+class TestStoreSessionSummary:
     def test_basic_store(self, db_path):
         # Text with entities that match built-in patterns (date, money, person name)
         store_session_summary(
-            db_path, "sess-001",
+            db_path,
+            "sess-001",
             "Alice Smith spent $5,000 on 2026-04-01 working on claude-hippo.",
             source="compact",
         )
         conn = sqlite3.connect(str(db_path))
-        row = conn.execute(
-            "SELECT session_id, summary, source, entities_extracted FROM session_summaries"
-        ).fetchone()
+        row = conn.execute("SELECT session_id, summary, source, entities_extracted FROM session_summaries").fetchone()
         conn.close()
         assert row[0] == "sess-001"
         assert "claude-hippo" in row[1]
@@ -170,7 +168,9 @@ class TestStoreSessionSummary:
 
     def test_entity_storage(self, db_path):
         store_session_summary(
-            db_path, "sess-002", "Alice Smith spent $5,000 on 2026-04-01.",
+            db_path,
+            "sess-002",
+            "Alice Smith spent $5,000 on 2026-04-01.",
         )
         conn = sqlite3.connect(str(db_path))
         entities = conn.execute(
@@ -186,12 +186,16 @@ class TestStoreSessionSummary:
     def test_upsert_replaces_count(self, db_path):
         """ON CONFLICT should replace mention_count, not accumulate."""
         store_session_summary(
-            db_path, "sess-003", "TestEntity did 10 things.",
+            db_path,
+            "sess-003",
+            "TestEntity did 10 things.",
             entities=[{"name": "TestEntity", "type": "Person", "count": 5}],
         )
         # Store again — should replace, not add
         store_session_summary(
-            db_path, "sess-003", "TestEntity did 10 things again.",
+            db_path,
+            "sess-003",
+            "TestEntity did 10 things again.",
             entities=[{"name": "TestEntity", "type": "Person", "count": 3}],
         )
         conn = sqlite3.connect(str(db_path))
@@ -204,11 +208,12 @@ class TestStoreSessionSummary:
 
     def test_pre_extracted_entities(self, db_path):
         """When entities are passed explicitly, don't re-extract."""
-        entities = [
-            {"name": "CustomEntity", "type": "Person", "count": 7}
-        ]
+        entities = [{"name": "CustomEntity", "type": "Person", "count": 7}]
         store_session_summary(
-            db_path, "sess-004", "Some text.", entities=entities,
+            db_path,
+            "sess-004",
+            "Some text.",
+            entities=entities,
         )
         conn = sqlite3.connect(str(db_path))
         row = conn.execute(
@@ -221,23 +226,24 @@ class TestStoreSessionSummary:
 
 # ── process_postcompact_summary ───────────────────────────────────────
 
-class TestProcessPostcompactSummary:
 
+class TestProcessPostcompactSummary:
     def test_returns_entity_count(self, db_path):
         count = process_postcompact_summary(
-            db_path, "sess-005",
+            db_path,
+            "sess-005",
             "Alice Smith spent $5,000 on 2026-04-01 and worked 8 hours.",
         )
         assert count >= 3  # Alice Smith, $5,000, 2026-04-01, 8 hours
 
     def test_stores_with_compact_source(self, db_path):
         process_postcompact_summary(
-            db_path, "sess-006", "Working on Legion stuff.",
+            db_path,
+            "sess-006",
+            "Working on Legion stuff.",
         )
         conn = sqlite3.connect(str(db_path))
-        row = conn.execute(
-            "SELECT source FROM session_summaries WHERE session_id='sess-006'"
-        ).fetchone()
+        row = conn.execute("SELECT source FROM session_summaries WHERE session_id='sess-006'").fetchone()
         conn.close()
         assert row[0] == "compact"
 

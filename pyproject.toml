@@ -45,10 +45,37 @@ dev = [
     "pytest-asyncio>=0.21.0",
     "httpx>=0.25.0",
     "numpy>=1.24.0",
+    "ruff>=0.9.0",
 ]
 
 [tool.hatch.build.targets.wheel]
 packages = ["lib"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+ignore = [
+    "E501",    # line length handled by formatter
+    "SIM108",  # ternary operator preference
+    "UP007",   # Optional[X] -> X | None (keep for 3.10 clarity)
+    "B904",    # raise from — HTTPException re-raises are idiomatic FastAPI
+    "B905",    # zip strict — Python 3.10 compat
+]
+
+[tool.ruff.lint.per-file-ignores]
+"hooks/*" = ["E402"]     # sys.path before imports
+"scripts/*" = ["E402"]
+"tests/*" = ["E402"]
+"contrib/*" = ["E402"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["lib", "hooks", "api"]
+
+[tool.ruff.format]
+quote-style = "double"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
