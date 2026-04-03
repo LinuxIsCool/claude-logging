@@ -21,7 +21,7 @@ import pytest
 import yaml
 
 # Import the module under test
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "contrib"))
 import heartbeat_check as hbc
 
 

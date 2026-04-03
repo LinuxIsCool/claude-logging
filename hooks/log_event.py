@@ -13,7 +13,6 @@ import json
 import sys
 import argparse
 import os
-import fcntl
 import hashlib
 import mimetypes
 from pathlib import Path
@@ -22,6 +21,26 @@ from collections import Counter
 import uuid
 from base64 import b64decode
 from typing import Optional, List, Dict, Any, Tuple
+
+# Cross-platform file locking
+if sys.platform == "win32":
+    class _NoOpFcntl:
+        """No-op file locking on Windows. See README for platform notes."""
+        LOCK_EX = 0
+        LOCK_UN = 0
+        @staticmethod
+        def flock(fd, op):
+            pass
+    fcntl = _NoOpFcntl()
+else:
+    import fcntl
+
+# Ensure lib is importable (plugin scripts aren't installed as packages)
+_PLUGIN_ROOT = str(Path(__file__).resolve().parent.parent)
+if _PLUGIN_ROOT not in sys.path:
+    sys.path.insert(0, _PLUGIN_ROOT)
+
+from lib import encode_project_path  # noqa: E402
 
 # Emojis for visual distinction in markdown
 EMOJIS = {
@@ -38,11 +57,33 @@ EMOJIS = {
     "AssistantResponse": "🌲",
 }
 
+# Allowed image MIME types for extraction
+ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp"}
+
 # Health monitoring constants
 HEALTH_DIR = Path.home() / ".claude" / "local" / "health"
-HEARTBEAT_NAMES = ("logging", "embedding", "hippo", "dreams", "rhythm", "koi", "journal")
 # Max age in seconds before a heartbeat is considered stale
 HEARTBEAT_MAX_AGE_SECONDS = 86400  # 24 hours
+
+
+def _load_heartbeat_config() -> tuple:
+    """Load heartbeat pipeline names from config, defaulting to core only.
+
+    Users can create ~/.claude/local/health/heartbeats.json to monitor
+    additional pipelines: {"pipelines": ["logging", "embedding", "custom"]}
+    """
+    config_path = HEALTH_DIR / "heartbeats.json"
+    if config_path.exists():
+        try:
+            with open(config_path) as f:
+                data = json.load(f)
+                return tuple(data.get("pipelines", ["logging"]))
+        except Exception:
+            pass
+    return ("logging",)
+
+
+HEARTBEAT_NAMES = _load_heartbeat_config()
 
 
 def write_heartbeat(name: str) -> None:
@@ -83,15 +124,6 @@ def check_stale_heartbeats() -> list:
     except Exception:
         pass
     return stale
-
-
-def encode_project_path(project_dir: str) -> str:
-    """Encode a project directory path for use as a directory name.
-
-    Mirrors Claude Code's ~/.claude/projects/ convention:
-    /home/user/Workspace/app -> -home-user-Workspace-app
-    """
-    return project_dir.replace("/", "-")
 
 
 def get_storage_path(cwd: Optional[str] = None) -> Path:
@@ -173,10 +205,6 @@ def extract_images_from_prompt(
             # Currently Claude Code uses base64 encoding
             if source.get("type") == "base64":
                 # Validate and normalize media type
-                ALLOWED_IMAGE_TYPES = {
-                    "image/jpeg", "image/jpg", "image/png",
-                    "image/gif", "image/webp"
-                }
                 media_type = source.get("media_type", "image/jpeg")
                 if media_type not in ALLOWED_IMAGE_TYPES:
                     media_type = "image/jpeg"  # Default to jpeg for unknown types
@@ -244,11 +272,17 @@ def get_agent_session_num(session_path: Path, source: Optional[str]) -> int:
         return 1 if source in ("compact", "clear") else 0
 
     try:
-        content = session_path.read_text()
-        count = (
-            content.count('"source": "compact"') +
-            content.count('"source": "clear"')
-        )
+        count = 0
+        with open(session_path) as f:
+            for line in f:
+                if line.strip():
+                    try:
+                        evt = json.loads(line)
+                        evt_data = evt.get("data", {})
+                        if isinstance(evt_data, dict) and evt_data.get("source") in ("compact", "clear"):
+                            count += 1
+                    except json.JSONDecodeError:
+                        continue
 
         if source in ("compact", "clear"):
             count += 1
@@ -488,11 +522,6 @@ def extract_images_from_transcript(
                     if not data:
                         continue
 
-                    # Validate media type
-                    ALLOWED_IMAGE_TYPES = {
-                        "image/jpeg", "image/jpg", "image/png",
-                        "image/gif", "image/webp"
-                    }
                     if media_type not in ALLOWED_IMAGE_TYPES:
                         media_type = "image/png"
 
@@ -562,6 +591,9 @@ def update_session_with_images(
     events by sequence position. The 1st user message maps to the 1st
     UserPromptSubmit, etc.
 
+    Uses r+ mode with lock held for the entire read-modify-write cycle
+    to prevent TOCTOU races with concurrent append_event calls.
+
     Args:
         session_path: Path to session JSONL file
         image_refs_by_msg: Mapping of user message index to image references
@@ -570,43 +602,39 @@ def update_session_with_images(
         return
 
     try:
-        # Read all events
-        lines = session_path.read_text().strip().split("\n")
-        events = []
-        user_prompt_indices = []  # Track positions of UserPromptSubmit events
+        with open(session_path, "r+") as f:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            try:
+                # Read all events while holding the lock
+                content = f.read()
+                events = []
+                user_prompt_indices = []
 
-        for line in lines:
-            if not line.strip():
-                continue
-            event = json.loads(line)
-            events.append(event)
+                for line in content.strip().split("\n"):
+                    if not line.strip():
+                        continue
+                    event = json.loads(line)
+                    events.append(event)
+                    if event.get("type") == "UserPromptSubmit":
+                        user_prompt_indices.append(len(events) - 1)
 
-            if event.get("type") == "UserPromptSubmit":
-                user_prompt_indices.append(len(events) - 1)
+                # Match UserPromptSubmit events to transcript user messages
+                updated = False
+                for msg_idx, image_refs in image_refs_by_msg.items():
+                    if msg_idx < len(user_prompt_indices):
+                        event_idx = user_prompt_indices[msg_idx]
+                        if "images" not in events[event_idx]:
+                            events[event_idx]["images"] = image_refs
+                            updated = True
 
-        # Match UserPromptSubmit events to transcript user messages by position
-        # and add image references
-        updated = False
-        for msg_idx, image_refs in image_refs_by_msg.items():
-            # Check if we have a corresponding UserPromptSubmit
-            if msg_idx < len(user_prompt_indices):
-                event_idx = user_prompt_indices[msg_idx]
-                event = events[event_idx]
-
-                # Only update if images not already set
-                if "images" not in event:
-                    event["images"] = image_refs
-                    updated = True
-
-        # Rewrite file if we made updates
-        if updated:
-            with open(session_path, "w") as f:
-                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
-                try:
+                # Rewrite file while still holding the lock
+                if updated:
+                    f.seek(0)
+                    f.truncate()
                     for event in events:
                         f.write(json.dumps(event, ensure_ascii=False) + "\n")
-                finally:
-                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+            finally:
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
     except Exception as e:
         log_error(e, "UpdateSessionImages")
@@ -1127,9 +1155,6 @@ def process_event(event_type: str, stdin_data: dict) -> dict:
     # - SessionStart: sync ALL sessions as a startup catch-up (prevents drift)
     if event_type in ("Stop", "SubagentStop", "PostCompact"):
         try:
-            plugin_root = str(Path(__file__).resolve().parent.parent)
-            if plugin_root not in sys.path:
-                sys.path.insert(0, plugin_root)
             from lib.storage import StorageManager
             sm = StorageManager(storage_path)
             try:
@@ -1141,9 +1166,6 @@ def process_event(event_type: str, stdin_data: dict) -> dict:
             log_error(e, f"SQLiteSync:{event_type}")
     elif event_type in ("SessionStart", "SessionEnd"):
         try:
-            plugin_root = str(Path(__file__).resolve().parent.parent)
-            if plugin_root not in sys.path:
-                sys.path.insert(0, plugin_root)
             from lib.storage import StorageManager
             sm = StorageManager(storage_path)
             try:
@@ -1159,9 +1181,6 @@ def process_event(event_type: str, stdin_data: dict) -> dict:
         summary = data.get("summary", "")
         if summary:
             try:
-                plugin_root = str(Path(__file__).resolve().parent.parent)
-                if plugin_root not in sys.path:
-                    sys.path.insert(0, plugin_root)
                 from lib.session_capture import process_postcompact_summary
                 db_path = storage_path / "db" / "logging.db"
                 process_postcompact_summary(
@@ -1176,9 +1195,6 @@ def process_event(event_type: str, stdin_data: dict) -> dict:
         try:
             emb_db = storage_path / "db" / "embeddings.db"
             if emb_db.exists():
-                plugin_root = str(Path(__file__).resolve().parent.parent)
-                if plugin_root not in sys.path:
-                    sys.path.insert(0, plugin_root)
                 from lib.embeddings import EmbeddingService, EmbeddingStorage
                 svc = EmbeddingService()
                 if svc.is_available:

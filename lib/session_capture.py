@@ -11,6 +11,7 @@ Three capture modes:
 """
 
 import json
+import os
 import re
 import sqlite3
 import sys
@@ -73,10 +74,14 @@ def _load_venture_patterns() -> list[str]:
 def _load_project_patterns() -> list[str]:
     """Load plugin names for project entity extraction.
 
-    Reads from the plugin directory at import time.
-    Falls back to empty list if not found.
+    Uses CLAUDE_PLUGIN_ROOT to find sibling plugins at import time.
+    Falls back to empty list if not in a plugin context.
     """
-    plugins_dir = Path.home() / ".claude/plugins/local/legion-plugins/plugins"
+    plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT")
+    if not plugin_root:
+        return []
+    # Sibling plugins live in the same parent directory
+    plugins_dir = Path(plugin_root).parent
     if plugins_dir.exists():
         try:
             names = [

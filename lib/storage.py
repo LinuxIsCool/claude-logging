@@ -6,11 +6,24 @@ Provides both JSONL (source of truth) and SQLite (indexed search) storage.
 
 import sqlite3
 import json
-import fcntl
+import sys
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional, Iterator, List
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, fields as dc_fields
+
+# Cross-platform file locking
+if sys.platform == "win32":
+    class _NoOpFcntl:
+        """No-op file locking on Windows. See README for platform notes."""
+        LOCK_EX = 0
+        LOCK_UN = 0
+        @staticmethod
+        def flock(fd, op):
+            pass
+    fcntl = _NoOpFcntl()
+else:
+    import fcntl
 
 
 @dataclass
@@ -45,6 +58,10 @@ class Event:
     def __post_init__(self):
         if self.data is None:
             self.data = {}
+
+
+# Pre-compute known field names for schema-safe construction
+_EVENT_FIELDS = {f.name for f in dc_fields(Event)}
 
 
 class JSONLStorage:
@@ -398,7 +415,8 @@ class StorageManager:
             for line in f:
                 if line.strip():
                     data = json.loads(line)
-                    event = Event(**data)
+                    # Filter to known fields for forward-compatibility
+                    event = Event(**{k: v for k, v in data.items() if k in _EVENT_FIELDS})
                     self.sqlite.insert_event(event)
                     events_synced += 1
 

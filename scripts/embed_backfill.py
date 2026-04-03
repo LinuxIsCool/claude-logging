@@ -7,7 +7,7 @@ EmbeddingStorage for semantic search. Runs incrementally — skips already
 embedded events.
 
 Usage:
-    cd ~/.claude/plugins/local/legion-plugins/plugins/claude-logging
+    cd <plugin-root>
     uv run scripts/embed_backfill.py [--project-path $HOME] [--all-types] [--batch-size 256]
 """
 

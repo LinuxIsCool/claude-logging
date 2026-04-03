@@ -32,16 +32,6 @@
         ]
       }
     ],
-    "Setup": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/log_event.py -e Setup"
-          }
-        ]
-      }
-    ],
     "SessionEnd": [
       {
         "hooks": [
@@ -62,12 +52,32 @@
         ]
       }
     ],
-    "SubagentStart": [
+    "Notification": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/log_event.py -e SubagentStart"
+            "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/log_event.py -e Notification"
+          }
+        ]
+      }
+    ],
+    "Elicitation": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/log_event.py -e Elicitation"
+          }
+        ]
+      }
+    ],
+    "ElicitationResult": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/log_event.py -e ElicitationResult"
           }
         ]
       }
@@ -79,6 +89,16 @@
           {
             "type": "command",
             "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/log_event.py -e PreToolUse"
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/log_event.py -e PermissionRequest"
           }
         ]
       }
@@ -105,32 +125,52 @@
         ]
       }
     ],
-    "PermissionRequest": [
+    "SubagentStart": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/log_event.py -e PermissionRequest"
+            "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/log_event.py -e SubagentStart"
           }
         ]
       }
     ],
-    "Notification": [
+    "SubagentStop": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/log_event.py -e Notification"
+            "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/log_event.py -e SubagentStop"
           }
         ]
       }
     ],
-    "PreCompact": [
+    "TeammateIdle": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/log_event.py -e PreCompact"
+            "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/log_event.py -e TeammateIdle"
+          }
+        ]
+      }
+    ],
+    "TaskCreated": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/log_event.py -e TaskCreated"
+          }
+        ]
+      }
+    ],
+    "TaskCompleted": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/log_event.py -e TaskCompleted"
           }
         ]
       }
@@ -145,12 +185,92 @@
         ]
       }
     ],
-    "SubagentStop": [
+    "StopFailure": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/log_event.py -e SubagentStop"
+            "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/log_event.py -e StopFailure"
+          }
+        ]
+      }
+    ],
+    "InstructionsLoaded": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/log_event.py -e InstructionsLoaded"
+          }
+        ]
+      }
+    ],
+    "ConfigChange": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/log_event.py -e ConfigChange"
+          }
+        ]
+      }
+    ],
+    "CwdChanged": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/log_event.py -e CwdChanged"
+          }
+        ]
+      }
+    ],
+    "FileChanged": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/log_event.py -e FileChanged"
+          }
+        ]
+      }
+    ],
+    "WorktreeCreate": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/log_event.py -e WorktreeCreate"
+          }
+        ]
+      }
+    ],
+    "WorktreeRemove": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/log_event.py -e WorktreeRemove"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/log_event.py -e PreCompact"
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/log_event.py -e PostCompact"
           }
         ]
       }
