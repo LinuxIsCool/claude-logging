@@ -162,17 +162,11 @@ class EmbeddingStorage:
         metadata: Dict[str, Any]
     ) -> None:
         """Store an embedding with metadata."""
-        if self._has_vec:
-            self.conn.execute(
-                "INSERT OR REPLACE INTO embeddings (event_id, embedding) VALUES (?, ?)",
-                (event_id, embedding)
-            )
-        else:
-            blob = self._serialize_embedding(embedding)
-            self.conn.execute(
-                "INSERT OR REPLACE INTO embeddings (event_id, embedding) VALUES (?, ?)",
-                (event_id, blob)
-            )
+        blob = self._serialize_embedding(embedding)
+        self.conn.execute(
+            "INSERT OR REPLACE INTO embeddings (event_id, embedding) VALUES (?, ?)",
+            (event_id, blob)
+        )
 
         self.conn.execute("""
             INSERT OR REPLACE INTO embedding_metadata
@@ -329,17 +323,11 @@ class EmbeddingStorage:
                 embedding = item["embedding"]
                 metadata = item["metadata"]
 
-                if self._has_vec:
-                    self.conn.execute(
-                        "INSERT OR REPLACE INTO embeddings (event_id, embedding) VALUES (?, ?)",
-                        (event_id, embedding)
-                    )
-                else:
-                    blob = self._serialize_embedding(embedding)
-                    self.conn.execute(
-                        "INSERT OR REPLACE INTO embeddings (event_id, embedding) VALUES (?, ?)",
-                        (event_id, blob)
-                    )
+                blob = self._serialize_embedding(embedding)
+                self.conn.execute(
+                    "INSERT OR REPLACE INTO embeddings (event_id, embedding) VALUES (?, ?)",
+                    (event_id, blob)
+                )
 
                 self.conn.execute("""
                     INSERT OR REPLACE INTO embedding_metadata

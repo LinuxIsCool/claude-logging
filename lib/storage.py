@@ -7,6 +7,7 @@ Provides both JSONL (source of truth) and SQLite (indexed search) storage.
 import sqlite3
 import json
 import sys
+import threading
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional, Iterator, List
@@ -116,10 +117,11 @@ class SQLiteStorage:
     def __init__(self, db_path: Path):
         self.db_path = db_path
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(str(db_path), timeout=10)
+        self.conn = sqlite3.connect(str(db_path), timeout=10, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA busy_timeout=5000")
+        self._write_lock = threading.Lock()
         self._init_schema()
 
     def _init_schema(self):
@@ -223,48 +225,50 @@ class SQLiteStorage:
 
     def insert_session(self, session: Session) -> None:
         """Insert or update a session."""
-        self.conn.execute("""
-            INSERT OR REPLACE INTO sessions
-            (id, started_at, ended_at, cwd, summary, tags, event_count, total_tokens)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            session.id,
-            session.started_at,
-            session.ended_at,
-            session.cwd,
-            session.summary,
-            json.dumps(session.tags),
-            session.event_count,
-            session.total_tokens,
-        ))
-        self.conn.commit()
+        with self._write_lock:
+            self.conn.execute("""
+                INSERT OR REPLACE INTO sessions
+                (id, started_at, ended_at, cwd, summary, tags, event_count, total_tokens)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                session.id,
+                session.started_at,
+                session.ended_at,
+                session.cwd,
+                session.summary,
+                json.dumps(session.tags),
+                session.event_count,
+                session.total_tokens,
+            ))
+            self.conn.commit()
 
     def insert_event(self, event: Event) -> None:
         """Insert event and update FTS index."""
-        # Insert event
-        self.conn.execute("""
-            INSERT OR REPLACE INTO events
-            (id, session_id, type, ts, agent_session_num, data, content)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (
-            event.id,
-            event.session_id,
-            event.type,
-            event.ts,
-            event.agent_session_num,
-            json.dumps(event.data),
-            event.content,
-        ))
-
-        # Insert into FTS if there's content
-        if event.content:
+        with self._write_lock:
+            # Insert event
             self.conn.execute("""
-                INSERT OR REPLACE INTO events_fts
-                (event_id, session_id, type, content)
-                VALUES (?, ?, ?, ?)
-            """, (event.id, event.session_id, event.type, event.content))
+                INSERT OR REPLACE INTO events
+                (id, session_id, type, ts, agent_session_num, data, content)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                event.id,
+                event.session_id,
+                event.type,
+                event.ts,
+                event.agent_session_num,
+                json.dumps(event.data),
+                event.content,
+            ))
 
-        self.conn.commit()
+            # Insert into FTS if there's content
+            if event.content:
+                self.conn.execute("""
+                    INSERT OR REPLACE INTO events_fts
+                    (event_id, session_id, type, content)
+                    VALUES (?, ?, ?, ?)
+                """, (event.id, event.session_id, event.type, event.content))
+
+            self.conn.commit()
 
     def search(self, query: str, limit: int = 20) -> List[dict]:
         """Full-text search across events."""
@@ -378,11 +382,47 @@ class SQLiteStorage:
 
     def update_sync_position(self, session_id: str, position: int) -> None:
         """Update sync position for a session."""
-        self.conn.execute("""
-            INSERT OR REPLACE INTO sync_state (session_id, last_position, last_sync)
-            VALUES (?, ?, ?)
-        """, (session_id, position, datetime.now(timezone.utc).isoformat()))
-        self.conn.commit()
+        with self._write_lock:
+            self.conn.execute("""
+                INSERT OR REPLACE INTO sync_state (session_id, last_position, last_sync)
+                VALUES (?, ?, ?)
+            """, (session_id, position, datetime.now(timezone.utc).isoformat()))
+            self.conn.commit()
+
+    def get_recent_events(
+        self,
+        limit: int = 50,
+        event_types: Optional[List[str]] = None,
+    ) -> List[dict]:
+        """Get recent events with optional type filter."""
+        sql = """
+            SELECT id, session_id, type, ts, content
+            FROM events
+            WHERE content IS NOT NULL AND content != ''
+        """
+        params: list = []
+
+        if event_types:
+            placeholders = ",".join("?" * len(event_types))
+            sql += f" AND type IN ({placeholders})"
+            params.extend(event_types)
+
+        sql += " ORDER BY ts DESC LIMIT ?"
+        params.append(limit)
+
+        cursor = self.conn.execute(sql, params)
+        return [
+            {
+                "event_id": row[0],
+                "session_id": row[1],
+                "event_type": row[2],
+                "timestamp": row[3],
+                "content": row[4] or "",
+                "score": 0,
+                "source": "recent",
+            }
+            for row in cursor
+        ]
 
     def close(self):
         """Close database connection."""
@@ -414,7 +454,10 @@ class StorageManager:
             f.seek(last_pos)
             for line in f:
                 if line.strip():
-                    data = json.loads(line)
+                    try:
+                        data = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue  # Skip partial lines from concurrent writes
                     # Filter to known fields for forward-compatibility
                     event = Event(**{k: v for k, v in data.items() if k in _EVENT_FIELDS})
                     self.sqlite.insert_event(event)

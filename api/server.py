@@ -86,7 +86,6 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -344,36 +343,8 @@ async def get_recent_events(
 ):
     """Get recent events (for browsing without search)."""
     try:
-        # Build query
-        sql = """
-            SELECT id, session_id, type, ts, content
-            FROM events
-            WHERE content IS NOT NULL AND content != ''
-        """
-        params = []
-
-        if event_types:
-            types = event_types.split(",")
-            placeholders = ",".join("?" * len(types))
-            sql += f" AND type IN ({placeholders})"
-            params.extend(types)
-
-        sql += " ORDER BY ts DESC LIMIT ?"
-        params.append(limit)
-
-        cursor = storage.sqlite.conn.execute(sql, params)
-        results = []
-        for row in cursor:
-            results.append({
-                "event_id": row[0],
-                "session_id": row[1],
-                "event_type": row[2],
-                "timestamp": row[3],
-                "content": row[4] or "",
-                "score": 0,
-                "source": "recent"
-            })
-
+        types_list = event_types.split(",") if event_types else None
+        results = storage.sqlite.get_recent_events(limit=limit, event_types=types_list)
         return {"results": results, "total": len(results), "time_ms": 0}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -417,46 +388,15 @@ async def serve_image(session_id: str, filename: str):
         if f'.{file_ext}' not in allowed_extensions:
             raise HTTPException(status_code=400, detail="Invalid file type")
 
-        # Check multiple possible image locations
-        # 1. New plugin path: .claude/local/logging/images/{session_id}/
-        # 2. Old plugin path: .claude/logging/YYYY/MM/images/{session_id}/
-        project_dir = Path(os.environ.get("CLAUDE_PROJECT_DIR", os.getcwd()))
-        possible_paths = [
-            STORAGE_PATH / "images" / session_id / filename,
-        ]
+        image_path = STORAGE_PATH / "images" / session_id / filename
 
-        # Also check the old plugin's date-based structure
-        old_logging_dir = project_dir / ".claude" / "logging"
-        if old_logging_dir.exists():
-            # Search for images directory in any date folder
-            for year_dir in old_logging_dir.glob("20*"):
-                for month_dir in year_dir.glob("*"):
-                    candidate = month_dir / "images" / session_id / filename
-                    if candidate.exists():
-                        possible_paths.insert(0, candidate)  # Prefer found paths
-
-        # Find first existing path
-        image_path = None
-        for path in possible_paths:
-            if path.exists():
-                image_path = path
-                break
-
-        if not image_path:
+        if not image_path.exists():
             raise HTTPException(status_code=404, detail="Image not found")
 
-        # Security: verify path is within an allowed directory
-        allowed_roots = [STORAGE_PATH.resolve(), (project_dir / ".claude").resolve()]
-        path_ok = False
-        for root in allowed_roots:
-            try:
-                image_path.resolve().relative_to(root)
-                path_ok = True
-                break
-            except ValueError:
-                continue
-
-        if not path_ok:
+        # Security: verify resolved path is within storage
+        try:
+            image_path.resolve().relative_to(STORAGE_PATH.resolve())
+        except ValueError:
             raise HTTPException(status_code=403, detail="Access denied")
 
         # Determine content type

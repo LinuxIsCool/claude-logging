@@ -5,11 +5,21 @@ Combines FTS5 keyword search with optional semantic search,
 using Reciprocal Rank Fusion (RRF) to merge results.
 """
 
+import sqlite3
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 import time
 
 from .storage import SQLiteStorage
+
+
+def _sanitize_fts_query(query: str) -> str:
+    """Escape user input for FTS5 MATCH to prevent syntax errors.
+
+    Wraps the query in double-quotes so FTS5 treats it as a literal phrase.
+    Internal double-quotes are escaped per FTS5 convention.
+    """
+    return '"' + query.replace('"', '""') + '"'
 
 
 @dataclass
@@ -46,6 +56,9 @@ class SearchService:
         if not query or not query.strip():
             return []
 
+        # Sanitize for FTS5 syntax safety
+        safe_query = _sanitize_fts_query(query.strip())
+
         # Build query with filters
         sql = """
             SELECT
@@ -59,7 +72,7 @@ class SearchService:
             JOIN events e ON events_fts.event_id = e.id
             WHERE events_fts MATCH ?
         """
-        params = [query]
+        params: list = [safe_query]
 
         if event_types:
             placeholders = ",".join("?" * len(event_types))
@@ -77,7 +90,10 @@ class SearchService:
         sql += " ORDER BY score LIMIT ?"
         params.append(limit)
 
-        cursor = self.sqlite.conn.execute(sql, params)
+        try:
+            cursor = self.sqlite.conn.execute(sql, params)
+        except sqlite3.OperationalError:
+            return []  # Malformed query — return empty rather than 500
 
         results = []
         for row in cursor:
