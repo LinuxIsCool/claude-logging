@@ -19,13 +19,13 @@ The logging directory can be opened as an Obsidian vault:
 
 ```bash
 # macOS
-open -a Obsidian "${CLAUDE_PROJECT_DIR}/.claude/local/logging"
+open -a Obsidian "~/.claude/local/logging"
 
 # Linux
-obsidian "obsidian://open?path=${CLAUDE_PROJECT_DIR}/.claude/local/logging"
+obsidian "obsidian://open?path=~/.claude/local/logging"
 
 # Alternative: open folder directly
-xdg-open "${CLAUDE_PROJECT_DIR}/.claude/local/logging"
+xdg-open "~/.claude/local/logging"
 ```
 
 ## Vault Structure

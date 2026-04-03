@@ -226,9 +226,12 @@ Patterns are loaded at import time from your local data, so they adapt to any us
 | `scripts/sync_backfill.py` | Backfill JSONL sessions into SQLite |
 | `scripts/embed_backfill.py` | Generate embeddings for semantic search |
 | `scripts/extract_session_text.py` | Extract searchable text from transcripts |
-| `scripts/bridge_to_hippo.py` | Bridge entities to FalkorDB knowledge graph |
 
 All scripts accept `--project-path` to work with any project directory.
+
+### Optional Integrations
+
+Additional scripts in `contrib/` demonstrate integration with external services (FalkorDB, PostgreSQL). See `contrib/README.md`.
 
 ## Web Interface
 
@@ -250,6 +253,11 @@ Access at http://127.0.0.1:3002. Features:
 - SQLite sync: ~1000 events/sec
 - Subagent transcript extraction: <75ms even for 13MB transcripts
 
+## Platform Support
+
+- **Linux/macOS**: Full support with file locking (`fcntl`)
+- **Windows**: Functional but without file locking (concurrent sessions may have rare write conflicts)
+
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE)

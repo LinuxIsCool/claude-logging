@@ -174,9 +174,11 @@ class TestHeartbeatLifecycle:
         sys.argv = original_argv
 
         from unittest.mock import patch
-        with patch.object(log_event, "HEALTH_DIR", tmp_path):
+        test_names = ("logging", "embedding", "hippo")
+        with patch.object(log_event, "HEALTH_DIR", tmp_path), \
+             patch.object(log_event, "HEARTBEAT_NAMES", test_names):
             # Write all heartbeats
-            for name in ("logging", "embedding", "hippo", "dreams", "rhythm"):
+            for name in test_names:
                 log_event.write_heartbeat(name)
 
             # All should be fresh
@@ -307,10 +309,15 @@ class TestLiveHeartbeats:
         assert len(heartbeats) > 0, "No heartbeat files found"
 
     def test_heartbeat_contents_valid(self):
-        """Heartbeat files should contain ISO timestamps."""
-        for hb in HEALTH_DIR.glob("*-heartbeat"):
-            content = hb.read_text().strip()
-            assert "T" in content, f"{hb.name} content not a timestamp: {content}"
+        """Heartbeat files written by this plugin should contain ISO timestamps."""
+        # Only check heartbeats from our HEARTBEAT_NAMES — other plugins may use
+        # different formats (e.g. Unix timestamps)
+        from hooks import log_event
+        for name in log_event.HEARTBEAT_NAMES:
+            hb = HEALTH_DIR / f"{name}-heartbeat"
+            if hb.exists():
+                content = hb.read_text().strip()
+                assert "T" in content, f"{hb.name} content not ISO timestamp: {content}"
 
 
 if __name__ == "__main__":

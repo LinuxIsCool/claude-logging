@@ -152,8 +152,10 @@ class TestExtractEntitiesLightweight:
 class TestStoreSessionSummary:
 
     def test_basic_store(self, db_path):
+        # Text with entities that match built-in patterns (date, money, person name)
         store_session_summary(
-            db_path, "sess-001", "Working on claude-hippo today.",
+            db_path, "sess-001",
+            "Alice Smith spent $5,000 on 2026-04-01 working on claude-hippo.",
             source="compact",
         )
         conn = sqlite3.connect(str(db_path))
@@ -164,7 +166,7 @@ class TestStoreSessionSummary:
         assert row[0] == "sess-001"
         assert "claude-hippo" in row[1]
         assert row[2] == "compact"
-        assert row[3] > 0  # entities were auto-extracted
+        assert row[3] > 0  # entities were auto-extracted (Date, Money, Person)
 
     def test_entity_storage(self, db_path):
         store_session_summary(

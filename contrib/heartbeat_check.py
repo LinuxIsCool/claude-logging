@@ -37,7 +37,7 @@ import yaml
 
 HEALTH_DIR = Path.home() / ".claude" / "local" / "health"
 CONFIG_PATH = HEALTH_DIR / "heartbeats.yml"
-KOI_DSN = os.environ.get("LEGION_KOI_DSN", "postgresql://localhost/personal_koi")
+KOI_DSN = os.environ.get("KOI_DSN", "")  # Optional: set to enable KOI freshness check
 
 SEVERITY_ORDER = {"critical": 0, "stale": 1, "missing": 2, "fresh": 3}
 

@@ -4,6 +4,8 @@ FastAPI Server for Logging Plugin
 Provides REST API for search, statistics, and real-time updates.
 """
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, FileResponse
@@ -16,7 +18,7 @@ import os
 import mimetypes
 import re
 
-# Add parent to path for imports
+# Add parent to path for imports (plugin scripts aren't installed as packages)
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -49,11 +51,35 @@ def get_search():
         _search_has_semantic = _search_service.embedding_storage is not None
     return _search_service
 
+_sync_task = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifecycle: sync on startup, periodic background sync."""
+    global _sync_task
+    storage.sync_all()
+
+    async def _periodic_sync():
+        while True:
+            await asyncio.sleep(30)
+            try:
+                storage.sync_all()
+            except Exception:
+                pass
+
+    _sync_task = asyncio.create_task(_periodic_sync())
+    yield
+    _sync_task.cancel()
+    storage.close()
+
+
 # Create FastAPI app
 app = FastAPI(
     title="Claude Logging API",
     description="Search and explore Claude Code conversation history",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan,
 )
 
 # CORS for web interface
@@ -126,10 +152,7 @@ async def search_logs(request: SearchRequest):
     Uses hybrid search (FTS5 + optional semantic) with RRF fusion.
     """
     try:
-        # Sync any new events first
-        storage.sync_all()
-
-        # Perform search
+        # Perform search (background task keeps SQLite in sync)
         svc = get_search()
         results, time_ms = svc.hybrid_search(
             query=request.query,
@@ -170,7 +193,6 @@ async def list_sessions(
 ):
     """List sessions with pagination."""
     try:
-        storage.sync_all()
         sessions = storage.sqlite.list_sessions(
             limit=limit,
             offset=offset,
@@ -223,7 +245,6 @@ async def get_session(session_id: str):
 async def get_stats():
     """Get overall statistics."""
     try:
-        storage.sync_all()
         stats = storage.sqlite.get_stats()
 
         return StatsResponse(
@@ -323,9 +344,6 @@ async def get_recent_events(
 ):
     """Get recent events (for browsing without search)."""
     try:
-        # Sync first to ensure we have latest
-        storage.sync_all()
-
         # Build query
         sql = """
             SELECT id, session_id, type, ts, content
@@ -509,18 +527,6 @@ async def stream_events():
         event_generator(),
         media_type="text/event-stream"
     )
-
-
-@app.on_event("startup")
-async def startup():
-    """Sync all sessions on startup."""
-    storage.sync_all()
-
-
-@app.on_event("shutdown")
-async def shutdown():
-    """Clean up on shutdown."""
-    storage.close()
 
 
 def main():

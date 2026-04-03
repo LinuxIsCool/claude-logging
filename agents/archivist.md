@@ -26,7 +26,7 @@ Search through past conversations using hybrid search (keyword + semantic):
 
 ```bash
 # Hybrid search via Python (preferred — uses FTS5 + embeddings)
-cd ~/.claude/plugins/local/legion-plugins/plugins/claude-logging && uv run python -c "
+cd ${CLAUDE_PLUGIN_ROOT} && uv run python -c "
 from pathlib import Path
 from lib.storage import StorageManager
 sm = StorageManager(Path.home() / '.claude/local/logging' / str(Path.home()).replace('/', '-'))

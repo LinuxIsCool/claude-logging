@@ -241,14 +241,3 @@ class SearchService:
 
         return results[:limit], elapsed_ms
 
-    def get_suggestions(self, prefix: str, limit: int = 10) -> List[str]:
-        """Get search suggestions based on prefix."""
-        # Simple implementation: find matching content prefixes
-        cursor = self.sqlite.conn.execute("""
-            SELECT DISTINCT content
-            FROM events
-            WHERE content LIKE ? || '%'
-            LIMIT ?
-        """, (prefix, limit))
-
-        return [row[0] for row in cursor if row[0]]
