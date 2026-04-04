@@ -1,38 +1,38 @@
 # Security
 
-## Data Storage
+## Your Data Stays on Your Machine
 
-All data is stored **locally on your machine**. This plugin never transmits data to external services.
+This plugin stores conversation history locally. It never transmits data to external services, never phones home, and includes no telemetry or analytics of any kind.
 
 ### What Gets Stored
 
 | Data | Location | Contains |
 |------|----------|----------|
-| Session events | `~/.claude/local/logging/<project>/sessions/*.jsonl` | Event type, timestamp, tool names, user prompts, assistant responses |
-| Search index | `~/.claude/local/logging/<project>/db/logging.db` | Same as above, indexed for FTS5 search |
-| Embeddings | `~/.claude/local/logging/<project>/db/embeddings.db` | Semantic vectors (optional) |
-| Images | `~/.claude/local/logging/<project>/images/` | Images pasted into prompts |
+| Session events | `sessions/*.jsonl` | Event type, timestamp, tool names, prompts, responses |
+| Search index | `db/logging.db` | Same data, indexed for full-text search |
+| Embeddings | `db/embeddings.db` | Semantic vectors (optional, only if you enable it) |
+| Images | `images/` | Screenshots and images pasted into prompts |
+
+All data lives under `~/.claude/local/logging/<encoded-project-path>/`.
 
 ### What Is NOT Stored
 
 - No API keys, tokens, or credentials
 - No data is sent to any remote server
-- No telemetry or analytics
+- No analytics, tracking, or telemetry
 
-## Clearing Data
+### Clearing Data
 
-To remove all logged data for a project:
-
+Remove all logged data for one project:
 ```bash
 rm -rf ~/.claude/local/logging/<encoded-project-path>/
 ```
 
-To remove all logged data across all projects:
-
+Remove all logged data across all projects:
 ```bash
 rm -rf ~/.claude/local/logging/
 ```
 
-## Reporting Vulnerabilities
+### Reporting Vulnerabilities
 
-If you discover a security issue, please email the maintainer directly rather than opening a public issue.
+If you discover a security issue, please email the maintainer directly rather than opening a public issue. See the repository for contact information.

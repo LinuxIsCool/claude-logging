@@ -4,10 +4,16 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 
-Comprehensive conversation logging with hybrid search, full subagent transcript capture, and visualization for Claude Code.
+Claude Code sessions are ephemeral. You close a session, the context is gone. Three weeks later you know you solved a problem, you remember the shape of the conversation, but the details have evaporated.
 
-> [!NOTE]
-> This is a Claude Code plugin that hooks into every lifecycle event, stores complete conversation history, and makes it all searchable with hybrid keyword + semantic search.
+This plugin fixes that. It captures every event Claude Code produces — every prompt, every tool call, every subagent's complete work product — and stores it permanently on your machine. Then it makes all of it searchable, instantly, by keyword or by meaning.
+
+Install it once, forget it exists, and gain perfect recall over every conversation you've ever had with Claude Code.
+
+```bash
+git clone https://github.com/LinuxIsCool/claude-logging.git ~/.claude/plugins/claude-logging
+cd ~/.claude/plugins/claude-logging && uv sync
+```
 
 ## What It Does
 

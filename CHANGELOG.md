@@ -14,7 +14,7 @@ All notable changes to this project will be documented in this file.
 - Lightweight entity extraction (Person, Date, Money, Duration)
 - Configurable heartbeat monitoring
 - GitHub Actions CI (Linux, macOS, Windows; Python 3.10-3.13)
-- Comprehensive test suite (96 tests)
+- Comprehensive test suite (173 tests)
 
 ### Security
 - FTS5 query sanitization (prevents syntax injection)
