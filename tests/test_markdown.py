@@ -132,7 +132,7 @@ class TestGenerateMarkdown:
         generate_markdown(jsonl, md, "test-md-001")
 
         assert md.exists()
-        content = md.read_text()
+        content = md.read_text(encoding="utf-8")
         assert "test-md-001" in content
         assert "Hello" in content
         assert "Hi there" in content
@@ -169,7 +169,7 @@ class TestGenerateMarkdown:
         jsonl, md = self._make_session(tmp_path, "test-md-002", events)
         generate_markdown(jsonl, md, "test-md-002")
 
-        content = md.read_text()
+        content = md.read_text(encoding="utf-8")
         assert "Read" in content
         assert "config.yaml" in content
 

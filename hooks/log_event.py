@@ -442,7 +442,7 @@ def tool_preview(data: dict) -> str:
 def get_response(transcript_path: str) -> str:
     """Extract last assistant response from Claude's transcript."""
     try:
-        for line in reversed(Path(transcript_path).read_text().strip().split("\n")):
+        for line in reversed(Path(transcript_path).read_text(encoding="utf-8").strip().split("\n")):
             if line.strip():
                 entry = json.loads(line)
                 if entry.get("type") == "assistant":
@@ -480,7 +480,7 @@ def extract_images_from_transcript(
         if not transcript.exists():
             return {}
 
-        lines = transcript.read_text().strip().split("\n")
+        lines = transcript.read_text(encoding="utf-8").strip().split("\n")
         user_msg_idx = 0
 
         for line in lines:
@@ -646,7 +646,7 @@ def update_session_with_images(session_path: Path, image_refs_by_msg: dict[int, 
 def get_subagent_info(transcript_path: str) -> dict[str, Any]:
     """Extract model, tools, and response from subagent transcript."""
     try:
-        lines = Path(transcript_path).read_text().strip().split("\n")
+        lines = Path(transcript_path).read_text(encoding="utf-8").strip().split("\n")
         model, tools, responses = "", [], []
 
         for line in lines:
@@ -711,7 +711,7 @@ def extract_subagent_transcript(transcript_path: str) -> dict[str, Any]:
         if not path.exists():
             return empty
 
-        text = path.read_text().strip()
+        text = path.read_text(encoding="utf-8").strip()
         if not text:
             return empty
 
@@ -864,7 +864,7 @@ def render_subagent_md(ts: str, agent_id: str, info: dict[str, Any]) -> list[str
 def generate_markdown(jsonl_path: Path, md_path: Path, session_id: str) -> None:
     """Generate human-readable markdown report from JSONL source."""
     try:
-        events = [json.loads(line) for line in jsonl_path.read_text().strip().split("\n") if line]
+        events = [json.loads(line) for line in jsonl_path.read_text(encoding="utf-8").strip().split("\n") if line]
     except Exception:
         return
 
