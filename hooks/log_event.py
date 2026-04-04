@@ -1011,7 +1011,7 @@ def generate_markdown(jsonl_path: Path, md_path: Path, session_id: str) -> None:
             emoji = EMOJIS.get(t, "•")
             lines.append(f"`{ts}` {emoji} {t} {info}".rstrip())
 
-    md_path.write_text("\n".join(lines) + "\n")
+    md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def process_event(event_type: str, stdin_data: dict) -> dict:
