@@ -294,12 +294,22 @@ Source: heartbeat_check.py (task-047, dream crystal #2)
 
 # ── Output Formatting ─────────────────────────────────────────────────
 
-STATUS_EMOJI = {
-    "fresh": "🟢",
-    "stale": "🟡",
-    "critical": "🔴",
-    "missing": "⚪",
-}
+def _load_status_emoji() -> dict[str, str]:
+    """Load health emoji from emoji_flat.json. Falls back to defaults."""
+    _DEFAULTS = {"fresh": "🟢", "stale": "🟡", "critical": "🔴", "missing": "⚪"}
+    try:
+        import json as _json
+        _flat = _json.loads(Path("~/.claude/local/emoji/emoji_flat.json").expanduser().read_text())
+        return {
+            "fresh": _flat.get("health:healthy", _DEFAULTS["fresh"]),
+            "stale": _flat.get("health:degraded", _DEFAULTS["stale"]),
+            "critical": _flat.get("health:unhealthy", _DEFAULTS["critical"]),
+            "missing": _flat.get("health:unknown", _DEFAULTS["missing"]),
+        }
+    except Exception:
+        return _DEFAULTS
+
+STATUS_EMOJI = _load_status_emoji()
 
 
 def format_human(results: list[dict]) -> str:

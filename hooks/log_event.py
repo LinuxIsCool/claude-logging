@@ -47,20 +47,23 @@ if _PLUGIN_ROOT not in sys.path:
 
 from lib import encode_project_path  # noqa: E402
 
-# Emojis for visual distinction in markdown
-EMOJIS = {
-    "SessionStart": "💫",
-    "SessionEnd": "⭐",
-    "UserPromptSubmit": "🍄",
-    "PreToolUse": "🔨",
-    "PostToolUse": "🏰",
-    "Notification": "🟡",
-    "PreCompact": "♻️",
-    "PostCompact": "📦",
-    "Stop": "🟢",
-    "SubagentStop": "🔵",
-    "AssistantResponse": "🌲",
-}
+def _load_emoji_flat() -> dict[str, str]:
+    """Load emoji from emoji_flat.json (canonical source). Falls back to empty dict."""
+    try:
+        import json as _json
+        _path = Path("~/.claude/local/emoji/emoji_flat.json").expanduser()
+        return _json.loads(_path.read_text())
+    except Exception:
+        return {}
+
+_EMOJI_FLAT = _load_emoji_flat()
+
+
+def emoji_for_event(event_type: str) -> str:
+    """Resolve emoji for a hook event type from emoji_flat.json."""
+    import re
+    kebab = re.sub(r'(?<!^)(?=[A-Z])', '-', event_type).lower()
+    return _EMOJI_FLAT.get(f"event:{kebab}", "•")
 
 # Allowed image MIME types for extraction
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp"}
@@ -1008,7 +1011,7 @@ def generate_markdown(jsonl_path: Path, md_path: Path, session_id: str) -> None:
 
         elif t in ("SessionStart", "SessionEnd", "Notification", "PreCompact", "PostCompact"):
             info = d.get("source") or d.get("message") or d.get("summary") or ""
-            emoji = EMOJIS.get(t, "•")
+            emoji = emoji_for_event(t)
             lines.append(f"`{ts}` {emoji} {t} {info}".rstrip())
 
     md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
