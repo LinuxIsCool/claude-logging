@@ -1,6 +1,6 @@
 # Claude Code Logging Plugin
 
-[![CI](https://github.com/LinuxIsCool/claude-logging/actions/workflows/ci.yml/badge.svg)](https://github.com/LinuxIsCool/claude-logging/actions/workflows/ci.yml)
+[![CI](https://github.com/cascadia-labs/claude-logging/actions/workflows/ci.yml/badge.svg)](https://github.com/cascadia-labs/claude-logging/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 
@@ -11,7 +11,7 @@ This plugin fixes that. It captures every event Claude Code produces — every p
 Install it once, forget it exists, and gain perfect recall over every conversation you've ever had with Claude Code.
 
 ```bash
-git clone https://github.com/LinuxIsCool/claude-logging.git ~/.claude/plugins/claude-logging
+git clone https://github.com/cascadia-labs/claude-logging.git ~/.claude/plugins/claude-logging
 cd ~/.claude/plugins/claude-logging && uv sync
 ```
 
@@ -50,14 +50,14 @@ On `SubagentStop`, the plugin reads the subagent's full transcript JSONL and enr
 ### Option A: Plugin Marketplace
 
 ```
-/plugin marketplace add LinuxIsCool/claude-logging
+/plugin marketplace add cascadia-labs/claude-logging
 ```
 
 ### Option B: Manual Install
 
 1. Clone the plugin:
    ```bash
-   git clone https://github.com/LinuxIsCool/claude-logging.git ~/.claude/plugins/claude-logging
+   git clone https://github.com/cascadia-labs/claude-logging.git ~/.claude/plugins/claude-logging
    ```
 
 2. Install dependencies:

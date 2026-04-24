@@ -4,7 +4,7 @@ Per-project hook event logging — SQLite + FTS5 + JSONL session archives.
 
 ## Key Facts
 - Stores per-project, NOT in a single DB. Path encoding replaces `/` with `-`.
-- `/home/shawn` -> `~/.claude/local/logging/-home-shawn/`
+- `/home/<user>` -> `~/.claude/local/logging/<project-slug>/`
 - `conversations.db` at the root is a **dead artifact** (0 bytes, never populated). Ignore it.
 - Hooks: all 25 event types captured.
 
@@ -12,7 +12,7 @@ Per-project hook event logging — SQLite + FTS5 + JSONL session archives.
 
 ### SQLite: `{path-encoded}/db/logging.db`
 
-Primary DB at `~/.claude/local/logging/-home-shawn/db/logging.db`:
+Primary DB at `~/.claude/local/logging/<project-slug>/db/logging.db`:
 
 ```sql
 CREATE TABLE sessions (
@@ -102,7 +102,7 @@ CREATE TABLE embedding_metadata (
 ```
 ~/.claude/local/logging/
   conversations.db             # DEAD — 0 bytes, ignore
-  -home-shawn/                 # Path-encoded project root
+  <project-slug>/             # Path-encoded project root
     db/
       logging.db               # SQLite (sessions, events, events_fts, etc.)
       embeddings.db            # SQLite (event embeddings)

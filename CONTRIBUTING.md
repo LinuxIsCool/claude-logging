@@ -5,7 +5,7 @@ Thank you for your interest in improving claude-logging.
 ## Development Setup
 
 ```bash
-git clone https://github.com/LinuxIsCool/claude-logging.git
+git clone https://github.com/cascadia-labs/claude-logging.git
 cd claude-logging
 uv sync --dev
 uv run pytest tests/
