@@ -269,7 +269,11 @@ def _write_yaml(summary: dict[str, Any], session_id: str) -> Path:
     out_dir = SESSIONS_ROOT / date / session_id
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / "summary.yaml"
-    out_path.write_text(yaml.safe_dump(summary, sort_keys=False, default_flow_style=False))
+    # Atomic write: write to .tmp then replace. Avoids partial YAML on disk
+    # if hook is killed mid-write (Claude Code aggressive shutdown, OOM, etc.).
+    tmp_path = out_path.with_suffix(".yaml.tmp")
+    tmp_path.write_text(yaml.safe_dump(summary, sort_keys=False, default_flow_style=False))
+    tmp_path.replace(out_path)
     return out_path
 
 
