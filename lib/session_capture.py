@@ -278,12 +278,9 @@ def batch_extract_from_transcripts(
                 stats["skipped"] += 1
                 continue
 
-            # Use user text as the summary source
+            # ZERO TRUNCATION: store full user text. Storage layer handles
+            # large blobs via TEXT column (SQLite max 1GB per cell).
             text = result.user_text
-            if len(text) > 10000:
-                # For very long sessions, take first and last portions
-                text = text[:5000] + "\n\n[...]\n\n" + text[-5000:]
-
             entities = extract_entities_lightweight(result.full_text)
             store_session_summary(db_path, session_id, text, "extracted", entities)
 

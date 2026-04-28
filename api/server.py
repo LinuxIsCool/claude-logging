@@ -167,7 +167,7 @@ async def search_logs(request: SearchRequest):
                     event_id=r.event_id,
                     session_id=r.session_id,
                     event_type=r.event_type,
-                    content=r.content[:500],  # Truncate for response
+                    content=r.content,  # ZERO TRUNCATION: full content. Caller paginates if needed.
                     score=r.score,
                     timestamp=r.timestamp,
                     source=r.source,

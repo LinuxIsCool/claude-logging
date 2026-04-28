@@ -362,10 +362,11 @@ def extract_content(event_type: str, data: dict) -> str | None:
         elif tool_name == "Grep":
             return f"Searching for: {tool_input.get('pattern', '')}"
         elif tool_name == "Task":
-            return f"Spawning agent: {tool_input.get('description', tool_input.get('prompt', '')[:100])}"
+            # ZERO TRUNCATION: full prompt
+            return f"Spawning agent: {tool_input.get('description', tool_input.get('prompt', ''))}"
         else:
-            # Generic fallback
-            return f"{tool_name}: {str(tool_input)[:200]}"
+            # ZERO TRUNCATION: full input
+            return f"{tool_name}: {str(tool_input)}"
 
     elif event_type == "PostToolUse":
         tool_name = data.get("tool_name", "Unknown")
@@ -374,11 +375,9 @@ def extract_content(event_type: str, data: dict) -> str | None:
         if tool_name == "Bash":
             stdout = response.get("stdout", "") if isinstance(response, dict) else str(response)
             if stdout:
-                # Truncate long output
+                # ZERO TRUNCATION: full stdout. Display layer ellipsizes.
                 lines = stdout.strip().split("\n")
-                if len(lines) > 3:
-                    return f"Output ({len(lines)} lines): {lines[0][:100]}..."
-                return f"Output: {stdout[:200]}"
+                return f"Output ({len(lines)} lines): {stdout}"
             return "Command completed (no output)"
         elif tool_name == "Read":
             return "File read successfully"
