@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 from session_capture import (
+    _name_to_flexible_pattern,
     extract_entities_lightweight,
     process_postcompact_summary,
     store_session_summary,
@@ -62,6 +63,10 @@ def db_path(tmp_path):
 
 
 class TestExtractEntitiesLightweight:
+    def test_venture_pattern_escapes_regex_metacharacters(self):
+        pattern = _name_to_flexible_pattern("foo(bar)-baz")
+        assert pattern == r"foo\(bar\)[-\s]?baz"
+
     def test_person_extraction(self):
         text = "Alice met with Bob Smith and Carol White about the project timeline."
         entities = extract_entities_lightweight(text)

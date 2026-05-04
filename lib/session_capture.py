@@ -49,6 +49,11 @@ def _load_person_patterns() -> list[str]:
 PERSON_PATTERNS = _load_person_patterns()
 
 
+def _name_to_flexible_pattern(name: str) -> str:
+    """Escape an entity name while allowing hyphen/space drift."""
+    return re.escape(name).replace(r"\-", r"[-\s]?").replace(r"\ ", r"\s?")
+
+
 def _load_venture_patterns() -> list[str]:
     """Load venture names from venture files for entity extraction.
 
@@ -59,9 +64,12 @@ def _load_venture_patterns() -> list[str]:
     if ventures_dir.exists():
         try:
             names = [
-                f.stem.replace("-", r"\s?") for f in ventures_dir.rglob("*.md") if f.stem not in ("README", "template")
+                _name_to_flexible_pattern(f.stem)
+                for f in ventures_dir.rglob("*.md")
+                if f.stem not in ("README", "template")
             ]
             if names:
+                names.sort(key=len, reverse=True)
                 return [r"\b(?:" + "|".join(names) + r")\b"]
         except Exception:
             pass
