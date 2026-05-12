@@ -1,5 +1,7 @@
 # claude-logging
 
+
+**Agents**: read `AGENTS.md` first. It declares the public surface contract and conventions for working with claude-logging.
 Per-project hook event logging — SQLite + FTS5 + JSONL session archives.
 
 ## Key Facts
