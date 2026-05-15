@@ -52,7 +52,13 @@ class Session:
 
 @dataclass
 class Event:
-    """Event record."""
+    """Event record.
+
+    task-508 Phase 1.4 — additive fields (persona / agent_id / tool_name /
+    tool_input_hash). Defaults to None so legacy JSONL events without these
+    fields continue to deserialize. Schema in logging.db has matching NULL-
+    default columns from migrate_001 (Phase 1.1).
+    """
 
     id: str
     session_id: str
@@ -62,6 +68,12 @@ class Event:
     data: dict = None
     content: str | None = None
     images: list | None = None  # Image references for UserPromptSubmit events
+
+    # task-508 Phase 1.4 — additive capture-time fields
+    persona: str | None = None
+    agent_id: str | None = None
+    tool_name: str | None = None
+    tool_input_hash: str | None = None
 
     def __post_init__(self):
         if self.data is None:
@@ -159,6 +171,15 @@ class SQLiteStorage:
                 agent_session_num INTEGER DEFAULT 0,
                 data JSON NOT NULL,
                 content TEXT,
+                -- task-508 Phase 1.4 — additive v2-pre capture-time columns
+                persona TEXT,
+                agent_id TEXT,
+                tool_name TEXT,
+                tool_input_hash TEXT,
+                duration_ms INTEGER,
+                tokens_in INTEGER,
+                tokens_out INTEGER,
+                cost_usd REAL,
                 FOREIGN KEY (session_id) REFERENCES sessions(id)
             );
 
@@ -253,14 +274,21 @@ class SQLiteStorage:
             self.conn.commit()
 
     def insert_event(self, event: Event) -> None:
-        """Insert event and update FTS index."""
+        """Insert event and update FTS index.
+
+        task-508 Phase 1.4 — also writes 4 additive columns
+        (persona, agent_id, tool_name, tool_input_hash) when present on the
+        Event. duration_ms/tokens_in/tokens_out/cost_usd remain NULL until
+        backfill or per-event derivation runs.
+        """
         with self._write_lock:
             # Insert event
             self.conn.execute(
                 """
                 INSERT OR REPLACE INTO events
-                (id, session_id, type, ts, agent_session_num, data, content)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                (id, session_id, type, ts, agent_session_num, data, content,
+                 persona, agent_id, tool_name, tool_input_hash)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     event.id,
@@ -270,6 +298,10 @@ class SQLiteStorage:
                     event.agent_session_num,
                     json.dumps(event.data),
                     event.content,
+                    event.persona,
+                    event.agent_id,
+                    event.tool_name,
+                    event.tool_input_hash,
                 ),
             )
 

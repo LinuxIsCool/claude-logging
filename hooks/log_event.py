@@ -813,6 +813,29 @@ def process_event(event_type: str, stdin_data: dict) -> dict:
         "data": data,
     }
 
+    # task-508 Phase 1.4 — additive capture-time enrichment
+    # Populate persona / agent_id / tool_name / tool_input_hash when
+    # deterministic. Fields are top-level on the event dict so sync_session()
+    # picks them up via _EVENT_FIELDS filter into the Event dataclass.
+    persona = os.environ.get("PERSONA_SLUG")
+    if persona:
+        event["persona"] = persona
+    agent_id_env = os.environ.get("CLAUDE_MATRIX_AGENT_ID")
+    if agent_id_env:
+        event["agent_id"] = agent_id_env
+    if event_type in ("PreToolUse", "PostToolUse", "PostToolUseFailure") and isinstance(data, dict):
+        tool_name = data.get("tool_name")
+        if tool_name:
+            event["tool_name"] = tool_name
+        tool_input = data.get("tool_input")
+        if tool_input is not None:
+            try:
+                import hashlib as _hashlib
+                input_json = json.dumps(tool_input, sort_keys=True, default=str)
+                event["tool_input_hash"] = _hashlib.sha256(input_json.encode()).hexdigest()[:16]
+            except Exception as e:
+                log_error(e, "ToolInputHash")
+
     # Handle UserPromptSubmit: extract images if prompt contains content blocks
     if event_type == "UserPromptSubmit" and isinstance(data, dict):
         prompt = data.get("prompt")
@@ -887,6 +910,9 @@ def process_event(event_type: str, stdin_data: dict) -> dict:
                 "agent_session_num": agent_session_num,
                 "data": {"response": response},
                 "content": response,
+                # task-508 Phase 1.4 — inherit persona/agent_id from parent event
+                **({"persona": event["persona"]} if "persona" in event else {}),
+                **({"agent_id": event["agent_id"]} if "agent_id" in event else {}),
             }
             events_to_write.append(assistant_event)
 

@@ -67,10 +67,20 @@ class TestEventSchemaEvolution:
             sm.close()
 
     def test_known_fields_set(self):
-        """_EVENT_FIELDS should contain all Event dataclass fields."""
+        """_EVENT_FIELDS should contain all Event dataclass fields.
+
+        task-508 Phase 1.4 additive fields: persona, agent_id, tool_name,
+        tool_input_hash. Backfill targets duration_ms/tokens/cost which
+        live as DB columns only (not Event fields yet).
+        """
         from lib.storage import _EVENT_FIELDS
 
-        expected = {"id", "session_id", "type", "ts", "agent_session_num", "data", "content", "images"}
+        expected = {
+            "id", "session_id", "type", "ts", "agent_session_num",
+            "data", "content", "images",
+            # task-508 Phase 1.4 additive
+            "persona", "agent_id", "tool_name", "tool_input_hash",
+        }
         assert expected == _EVENT_FIELDS
 
 
