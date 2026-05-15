@@ -4,45 +4,27 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>claude-logging — Legion observability</title>
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23cba6f7'/%3E%3Ctext x='8' y='12' font-family='monospace' font-size='10' fill='%231e1e2e' text-anchor='middle'%3E%E2%97%89%3C/text%3E%3C/svg%3E" />
+<link rel="icon" href='data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="%231e1e2e"/><text x="50%25" y="62%25" text-anchor="middle" font-size="20" fill="%23cba6f7" font-family="monospace">%E2%97%89</text></svg>' />
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
   tailwind.config = {
     theme: {
       extend: {
         fontFamily: {
-          'press': ['"Press Start 2P"', 'monospace'],
+          'pixel': ['"Press Start 2P"', 'monospace'],
           'mono': ['"JetBrains Mono"', 'monospace'],
         },
         colors: {
           // Catppuccin Mocha
-          base: '#1e1e2e',
-          mantle: '#181825',
-          crust: '#11111b',
-          surface0: '#313244',
-          surface1: '#45475a',
-          surface2: '#585b70',
-          text: '#cdd6f4',
-          subtext0: '#a6adc8',
-          subtext1: '#bac2de',
-          overlay0: '#6c7086',
-          overlay1: '#7f849c',
-          overlay2: '#9399b2',
-          // Accents
-          rosewater: '#f5e0dc',
-          flamingo: '#f2cdcd',
-          pink: '#f5c2e7',
-          mauve: '#cba6f7',
-          red: '#f38ba8',
-          maroon: '#eba0ac',
-          peach: '#fab387',
-          yellow: '#f9e2af',
-          green: '#a6e3a1',
-          teal: '#94e2d5',
-          sky: '#89dceb',
-          sapphire: '#74c7ec',
-          blue: '#89b4fa',
-          lavender: '#b4befe',
+          base: '#1e1e2e', mantle: '#181825', crust: '#11111b',
+          surface0: '#313244', surface1: '#45475a', surface2: '#585b70',
+          text: '#cdd6f4', subtext0: '#a6adc8', subtext1: '#bac2de',
+          overlay0: '#6c7086', overlay1: '#7f849c', overlay2: '#9399b2',
+          rosewater: '#f5e0dc', flamingo: '#f2cdcd', pink: '#f5c2e7',
+          mauve: '#cba6f7', red: '#f38ba8', maroon: '#eba0ac',
+          peach: '#fab387', yellow: '#f9e2af', green: '#a6e3a1',
+          teal: '#94e2d5', sky: '#89dceb', sapphire: '#74c7ec',
+          blue: '#89b4fa', lavender: '#b4befe',
         },
         animation: {
           'fade-in': 'fadeIn 0.2s ease-out',
@@ -56,102 +38,164 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Press+Start+2P&display=swap" rel="stylesheet" />
 <style>
-  body { font-family: 'JetBrains Mono', monospace; background: #1e1e2e; color: #cdd6f4; }
-  .font-press { font-family: 'Press Start 2P', monospace; }
   @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
   @keyframes pulseGlow { 0% { box-shadow: 0 0 0 1px rgba(203,166,247,0.8); } 100% { box-shadow: 0 0 0 1px transparent; } }
-  /* Persona color rail */
+  body { font-family: 'JetBrains Mono', monospace; background: #1e1e2e; color: #cdd6f4; }
+  .font-pixel { font-family: 'Press Start 2P', monospace; letter-spacing: 0.04em; }
+  /* Persona color rails (3-px left border on cards) */
   .persona-rail { width: 3px; flex-shrink: 0; }
   .persona-matt { background: #cba6f7; }
   .persona-shawn { background: #89b4fa; }
   .persona-darren { background: #94e2d5; }
   .persona-eve { background: #f5c2e7; }
   .persona-claude { background: #6c7086; }
-  /* Tab styling */
-  .nav-tab { padding: 0.5rem 1rem; cursor: pointer; border-bottom: 2px solid transparent; }
-  .nav-tab.active { border-bottom-color: #cba6f7; color: #cba6f7; }
-  .nav-tab:hover:not(.active) { background: rgba(203,166,247,0.05); color: #b4befe; }
-  /* Card */
+  /* Card surface */
   .card { background: #181825; border: 1px solid #313244; border-radius: 6px; transition: border-color 0.15s; }
   .card:hover { border-color: #45475a; }
+  /* View-nav item */
+  .view-nav-item {
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 0.5rem 0.75rem; border-radius: 4px;
+    cursor: pointer; font-family: 'Press Start 2P', monospace;
+    font-size: 0.65rem; letter-spacing: 0.04em;
+    color: #a6adc8; transition: all 0.15s;
+  }
+  .view-nav-item:hover { background: rgba(203,166,247,0.08); color: #b4befe; }
+  .view-nav-item.active { background: rgba(203,166,247,0.15); color: #cba6f7; }
+  .view-nav-item .glyph { font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; opacity: 0.7; }
+  .view-nav-item.active .glyph { opacity: 1; }
   /* Scrollbar */
   ::-webkit-scrollbar { width: 8px; height: 8px; }
   ::-webkit-scrollbar-track { background: #1e1e2e; }
   ::-webkit-scrollbar-thumb { background: #45475a; border-radius: 4px; }
   ::-webkit-scrollbar-thumb:hover { background: #585b70; }
-  /* Code preview */
+  /* Preview clamping */
   .preview { white-space: pre-wrap; word-wrap: break-word; max-height: 6rem; overflow: hidden; position: relative; }
   .preview::after {
-    content: '';
-    position: absolute;
-    bottom: 0; left: 0; right: 0;
-    height: 1.5rem;
-    background: linear-gradient(transparent, #181825);
-    pointer-events: none;
+    content: ''; position: absolute; bottom: 0; left: 0; right: 0;
+    height: 1.5rem; background: linear-gradient(transparent, #181825); pointer-events: none;
   }
   .preview.expanded { max-height: none; }
   .preview.expanded::after { display: none; }
-  /* Input */
+  /* Inputs */
   input.txt, select.txt {
-    background: #1e1e2e;
-    border: 1px solid #313244;
-    color: #cdd6f4;
-    padding: 0.5rem 0.75rem;
-    border-radius: 4px;
-    outline: none;
+    background: #1e1e2e; border: 1px solid #313244; color: #cdd6f4;
+    padding: 0.4rem 0.6rem; border-radius: 4px; outline: none;
+    font-family: 'JetBrains Mono', monospace; font-size: 0.85rem;
   }
-  input.txt:focus, select.txt:focus {
-    border-color: #cba6f7;
-  }
+  input.txt:focus, select.txt:focus { border-color: #cba6f7; }
   /* Badge */
   .badge {
-    display: inline-block;
-    padding: 0.125rem 0.5rem;
-    border-radius: 9999px;
-    font-size: 0.7rem;
-    font-weight: 500;
-    background: #313244;
-    color: #a6adc8;
+    display: inline-block; padding: 0.125rem 0.5rem; border-radius: 9999px;
+    font-size: 0.7rem; font-weight: 500; background: #313244; color: #a6adc8;
   }
   .badge.matt { background: rgba(203,166,247,0.15); color: #cba6f7; }
   .badge.shawn { background: rgba(137,180,250,0.15); color: #89b4fa; }
   .badge.darren { background: rgba(148,226,213,0.15); color: #94e2d5; }
   .badge.eve { background: rgba(245,194,231,0.15); color: #f5c2e7; }
+  .badge-tool { background: rgba(250,179,135,0.15); color: #fab387; }
   /* Empty state */
-  .empty {
-    padding: 4rem 2rem; text-align: center; color: #6c7086;
-  }
-  /* Pulse on freshly arrived */
+  .empty { padding: 4rem 2rem; text-align: center; color: #6c7086; }
+  /* Live pulse on freshly arrived elements */
   .live-pulse { animation: pulseGlow 0.8s ease-out; }
+  /* Mobile sidebar */
+  .scrim-open #left-nav { transform: translateX(0); }
+  @media (max-width: 1024px) {
+    #left-nav { position: fixed; left: 0; top: 0; bottom: 0; width: 240px;
+                transform: translateX(-100%); transition: transform 0.2s ease;
+                z-index: 50; background: #181825; padding: 1rem; overflow-y: auto; }
+    #detail-panel { display: none; }
+  }
 </style>
 </head>
-<body class="min-h-screen">
-<!-- Top nav -->
-<header class="bg-mantle border-b border-surface0 px-4 py-3 flex items-center gap-6 sticky top-0 z-10">
-  <div class="font-press text-mauve text-sm">claude-logging</div>
-  <nav class="flex gap-1">
-    <div class="nav-tab" data-tab="prompts">Prompts</div>
-    <div class="nav-tab" data-tab="transcript">Transcript</div>
-    <div class="nav-tab" data-tab="search">Search</div>
-    <div class="nav-tab" data-tab="settings">Settings</div>
-  </nav>
-  <div class="ml-auto flex items-center gap-3 text-xs text-subtext0">
-    <select id="project-filter" class="txt text-xs">
+
+<body class="min-h-screen flex flex-col">
+
+<!-- Mobile scrim -->
+<div id="mobile-scrim" class="hidden fixed inset-0 bg-black/60 z-40 lg:hidden" data-action="close-sidebar"></div>
+
+<!-- Header -->
+<header id="app-header" class="border-b border-surface0 bg-mantle sticky top-0 z-30">
+  <div class="max-w-[1800px] mx-auto px-4 py-3 flex flex-wrap items-center gap-4">
+    <button id="sidebar-toggle" class="lg:hidden text-subtext0 hover:text-text text-xl" data-action="open-sidebar">☰</button>
+    <a id="hub-backlink" href="/home/?embedded=1" class="hidden text-green hover:text-sky text-xs font-medium shrink-0" title="back to Legion Webui Hub">← Hub</a>
+    <h1 class="font-pixel text-mauve text-sm shrink-0">claude-logging</h1>
+    <span class="badge text-xs">v2.0.0-pre</span>
+    <div class="flex-1"></div>
+    <select id="project-filter" class="txt text-xs hidden lg:block">
       <option value="">All projects</option>
     </select>
-    <span id="healthz-slot">·</span>
+    <span id="healthz-slot" class="text-xs text-overlay0">·</span>
   </div>
 </header>
 
-<!-- Main content area -->
-<main id="main" class="p-4 max-w-6xl mx-auto">
-  <div class="empty">Loading…</div>
+<!-- Main grid: left-nav (2) + main (7) + detail (3) on lg+ -->
+<main class="max-w-[1800px] mx-auto px-4 py-4 grid grid-cols-12 gap-4 flex-1 w-full">
+
+  <!-- Left nav rail -->
+  <aside id="left-nav" class="lg:col-span-2 min-w-0">
+    <div class="sticky top-[80px] space-y-3">
+      <nav id="view-nav" class="rounded-lg border border-surface0 bg-mantle p-1.5 space-y-0.5">
+        <div class="view-nav-item" data-tab="prompts">
+          <span class="glyph">▸</span><span>Prompts</span>
+        </div>
+        <div class="view-nav-item" data-tab="transcript">
+          <span class="glyph">≡</span><span>Transcript</span>
+        </div>
+        <div class="view-nav-item" data-tab="search">
+          <span class="glyph">⌕</span><span>Search</span>
+        </div>
+        <div class="view-nav-item" data-tab="settings">
+          <span class="glyph">⚙</span><span>Settings</span>
+        </div>
+      </nav>
+
+      <!-- Left stats summary -->
+      <div id="left-stats" class="rounded-lg border border-surface0 bg-mantle p-3 text-xs space-y-1">
+        <div class="font-pixel text-mauve mb-2 text-[0.65rem]">CORPUS</div>
+        <div class="flex justify-between"><span class="text-overlay0">prompts</span><span id="stat-prompts" class="text-text">·</span></div>
+        <div class="flex justify-between"><span class="text-overlay0">events</span><span id="stat-events" class="text-text">·</span></div>
+        <div class="flex justify-between"><span class="text-overlay0">projects</span><span id="stat-projects" class="text-text">·</span></div>
+        <div class="flex justify-between"><span class="text-overlay0">sessions</span><span id="stat-sessions" class="text-text">·</span></div>
+      </div>
+
+      <!-- Persona filter -->
+      <div class="rounded-lg border border-surface0 bg-mantle p-3 text-xs space-y-1">
+        <div class="font-pixel text-mauve mb-2 text-[0.65rem]">PERSONA</div>
+        <div id="persona-filter" class="space-y-1">
+          <div class="persona-item flex items-center gap-2 px-1 py-0.5 rounded cursor-pointer hover:bg-surface0" data-persona="">
+            <span class="persona-rail h-3"></span><span class="text-subtext0">all</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main view -->
+  <section id="main-view" class="col-span-12 lg:col-span-7 min-w-0">
+    <div id="view-root" class="animate-fade-in">
+      <div class="empty">Loading…</div>
+    </div>
+  </section>
+
+  <!-- Right detail panel -->
+  <aside id="detail-panel" class="lg:col-span-3 min-w-0 hidden lg:block">
+    <div class="sticky top-[80px] space-y-3">
+      <div id="detail-slot" class="rounded-lg border border-surface0 bg-mantle p-4 text-sm text-subtext0">
+        <div class="font-pixel text-mauve mb-2 text-[0.65rem]">DETAIL</div>
+        <div class="text-overlay0 text-xs">No prompt selected. Click a card to see its session transcript here.</div>
+      </div>
+    </div>
+  </aside>
+
 </main>
 
 <!-- Footer -->
-<footer class="border-t border-surface0 text-xs text-overlay0 px-4 py-2 flex items-center gap-4">
-  <span id="footer-status">·</span>
-  <span class="ml-auto">claude-logging v2.0.0-pre · task-508</span>
+<footer id="app-footer" class="border-t border-surface0 bg-mantle mt-auto">
+  <div class="max-w-[1800px] mx-auto px-4 py-2 text-[0.7rem] text-overlay0 font-mono flex items-center gap-3">
+    <span id="footer-namespace">legion.claude-logging</span>
+    <span id="footer-status" class="ml-auto">ready.</span>
+  </div>
 </footer>
 
 <!-- Layer-2 hub-bar from claude-webui shared static -->
@@ -160,32 +204,28 @@
 <script>
 'use strict';
 
+const PERSONAS = ['matt', 'shawn', 'darren', 'eve', 'legion'];
+
 const state = {
   tab: 'prompts',
   projectSlug: '',
+  personaFilter: '',
   prompts: [],
-  sessions: [],
   searchResults: null,
   stats: null,
   projects: [],
   currentSession: null,
+  currentPromptDetail: null,
   transcriptMode: 'clean',
-  loading: false,
-  error: null,
 };
 
-// ── URL helpers ────────────────────────────────────────────────────
+// ── URL / path helpers ─────────────────────────────────────────────
 
 function pathPrefix() {
-  // Mode A: pathname is "/" or "/index.html" — no prefix.
-  // Mode B: pathname starts with "/<mount>/" — prefix is "/<mount>".
   const p = window.location.pathname;
   if (p === '/' || p === '/index.html' || p.startsWith('/?')) return '';
-  // Strip trailing slash and trailing /index.html for prefix detection
   const parts = p.split('/').filter(Boolean);
   if (parts.length === 0) return '';
-  // First segment is the mount slug if we're in Mode B
-  // (claude-webui Platform mounts at /<slug>/)
   return '/' + parts[0];
 }
 
@@ -200,9 +240,7 @@ async function api(path, params) {
     }
   }
   const res = await fetch(url.toString());
-  if (!res.ok) {
-    throw new Error(`${path} → HTTP ${res.status}`);
-  }
+  if (!res.ok) throw new Error(`${path} → HTTP ${res.status}`);
   return await res.json();
 }
 
@@ -213,57 +251,55 @@ function fmtTime(iso) {
   try {
     const d = new Date(iso);
     if (isNaN(d.getTime())) return iso;
-    const now = new Date();
-    const diff = (now - d) / 1000;
+    const diff = (Date.now() - d) / 1000;
     if (diff < 60) return Math.floor(diff) + 's ago';
     if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
     if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
     if (diff < 604800) return Math.floor(diff / 86400) + 'd ago';
     return d.toISOString().slice(0, 10);
-  } catch {
-    return iso;
-  }
+  } catch { return iso; }
 }
 
-function fmtAbsTime(iso) {
-  if (!iso) return '';
-  try {
-    return new Date(iso).toISOString().replace('T', ' ').slice(0, 19) + 'Z';
-  } catch {
-    return iso;
-  }
-}
-
-function personaBadgeClass(persona) {
+function personaCls(persona) {
   if (!persona) return '';
-  const known = ['matt', 'shawn', 'darren', 'eve'];
-  if (known.includes(persona)) return persona;
-  return '';
+  return PERSONAS.includes(persona) ? persona : '';
 }
 
 function escapeHtml(s) {
   if (s == null) return '';
   return String(s)
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;');
+    .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;').replaceAll("'", '&#039;');
 }
+
+function shortenSlug(slug) {
+  if (!slug) return '';
+  // -home-shawn-legion-koi → legion-koi
+  // -home-shawn-.claude-plugins-local-legion-plugins-plugins-claude-X → plugins/claude-X
+  if (slug.includes('-plugins-local-legion-plugins-plugins-')) {
+    const m = slug.match(/-plugins-local-legion-plugins-plugins-(.+)$/);
+    if (m) return 'plugins/' + m[1];
+  }
+  if (slug.startsWith('-home-shawn-')) {
+    return slug.replace('-home-shawn-', '');
+  }
+  return slug;
+}
+
+// ── Cards ──────────────────────────────────────────────────────────
 
 function renderPromptCard(p) {
   const persona = p.persona || 'claude';
-  const personaCls = `persona-${personaBadgeClass(persona) || 'claude'}`;
-  const badgeCls = personaBadgeClass(persona);
+  const personaCls_ = `persona-${personaCls(persona) || 'claude'}`;
+  const badgeCls = personaCls(persona);
   return `
-    <div class="card flex animate-fade-in" data-event-id="${escapeHtml(p.event_id)}">
-      <div class="persona-rail ${personaCls}"></div>
-      <div class="flex-1 p-3">
-        <div class="flex items-center gap-2 text-xs mb-2">
+    <div class="card flex animate-fade-in cursor-pointer mb-2" data-event-id="${escapeHtml(p.event_id)}" data-session="${escapeHtml(p.session_id || '')}">
+      <div class="persona-rail ${personaCls_}"></div>
+      <div class="flex-1 p-3 min-w-0">
+        <div class="flex items-center gap-2 text-xs mb-2 flex-wrap">
           <span class="badge ${badgeCls}">${escapeHtml(persona)}</span>
-          <span class="text-overlay1">${escapeHtml(p.project_slug)}</span>
-          <span class="text-overlay0" data-age data-iso="${escapeHtml(p.ts)}">${fmtTime(p.ts)}</span>
-          ${p.session_id ? `<a class="text-mauve hover:underline cursor-pointer ml-auto" data-session="${escapeHtml(p.session_id)}">transcript →</a>` : ''}
+          <span class="text-overlay1 truncate" title="${escapeHtml(p.project_slug)}">${escapeHtml(shortenSlug(p.project_slug))}</span>
+          <span class="text-overlay0 ml-auto" data-age data-iso="${escapeHtml(p.ts)}">${fmtTime(p.ts)}</span>
         </div>
         <div class="preview text-sm">${escapeHtml(p.preview || '')}</div>
       </div>
@@ -277,11 +313,11 @@ function renderEventRow(e) {
   const headerColor = isPrompt ? 'text-mauve' : isResponse ? 'text-green' : 'text-sky';
   const content = e.content || (e.data?.response) || (e.data?.prompt) || '';
   return `
-    <div class="card p-3 animate-fade-in">
-      <div class="flex items-center gap-2 text-xs mb-2">
+    <div class="card p-3 animate-fade-in mb-2">
+      <div class="flex items-center gap-2 text-xs mb-2 flex-wrap">
         <span class="badge ${headerColor}">${escapeHtml(e.type)}</span>
-        ${e.persona ? `<span class="badge ${personaBadgeClass(e.persona)}">${escapeHtml(e.persona)}</span>` : ''}
-        ${e.tool_name ? `<span class="text-peach">[${escapeHtml(e.tool_name)}]</span>` : ''}
+        ${e.persona ? `<span class="badge ${personaCls(e.persona)}">${escapeHtml(e.persona)}</span>` : ''}
+        ${e.tool_name ? `<span class="badge badge-tool">${escapeHtml(e.tool_name)}</span>` : ''}
         <span class="text-overlay0 ml-auto" data-age data-iso="${escapeHtml(e.ts)}">${fmtTime(e.ts)}</span>
       </div>
       ${content ? `<div class="preview text-sm">${escapeHtml(content)}</div>` : ''}
@@ -289,44 +325,98 @@ function renderEventRow(e) {
   `;
 }
 
+// ── Detail panel ───────────────────────────────────────────────────
+
+function renderDetail() {
+  const slot = document.getElementById('detail-slot');
+  if (!state.currentPromptDetail) {
+    slot.innerHTML = `
+      <div class="font-pixel text-mauve mb-2 text-[0.65rem]">DETAIL</div>
+      <div class="text-overlay0 text-xs">No prompt selected. Click a card to see its session transcript here.</div>
+    `;
+    return;
+  }
+  const p = state.currentPromptDetail;
+  const persona = p.persona || 'claude';
+  slot.innerHTML = `
+    <div class="font-pixel text-mauve mb-3 text-[0.65rem]">DETAIL</div>
+    <div class="space-y-2 text-xs">
+      <div><span class="text-overlay0">persona:</span> <span class="badge ${personaCls(persona)}">${escapeHtml(persona)}</span></div>
+      <div><span class="text-overlay0">project:</span> <span class="text-subtext1">${escapeHtml(shortenSlug(p.project_slug))}</span></div>
+      <div><span class="text-overlay0">session:</span> <code class="text-mauve">${escapeHtml((p.session_id || '').slice(0, 8))}…</code></div>
+      <div><span class="text-overlay0">time:</span> <span class="text-subtext1">${escapeHtml(p.ts)}</span></div>
+      ${p.tool_name ? `<div><span class="text-overlay0">tool:</span> <span class="badge badge-tool">${escapeHtml(p.tool_name)}</span></div>` : ''}
+      <hr class="border-surface0 my-2" />
+      <button class="view-nav-item w-full text-center" data-action="open-transcript">view full transcript →</button>
+    </div>
+  `;
+  slot.querySelector('[data-action="open-transcript"]')?.addEventListener('click', () => {
+    state.currentSession = p.session_id;
+    navigate('transcript');
+  });
+}
+
 // ── Tab renderers ──────────────────────────────────────────────────
 
 async function renderPromptsTab() {
-  const main = document.getElementById('main');
-  main.innerHTML = `<div class="empty">Loading prompts…</div>`;
+  const main = document.getElementById('view-root');
+  main.innerHTML = `
+    <div class="mb-3 flex items-center justify-between gap-2 flex-wrap">
+      <div class="text-xs text-subtext0">recent prompts${state.projectSlug ? ` in <span class="text-mauve">${escapeHtml(shortenSlug(state.projectSlug))}</span>` : ' · all projects'}${state.personaFilter ? ` · <span class="text-mauve">${escapeHtml(state.personaFilter)}</span>` : ''}</div>
+      <input id="quick-q" type="text" placeholder="quick filter…" class="txt text-xs" />
+    </div>
+    <div id="prompts-list" class="empty">Loading…</div>
+  `;
+  document.getElementById('quick-q').addEventListener('input', (e) => {
+    clearTimeout(window._qDebounce);
+    window._qDebounce = setTimeout(() => loadPrompts(e.target.value), 250);
+  });
+  await loadPrompts('');
+}
+
+async function loadPrompts(q) {
+  const list = document.getElementById('prompts-list');
   try {
     const params = { limit: 50 };
     if (state.projectSlug) params.project_slug = state.projectSlug;
+    if (state.personaFilter) params.persona = state.personaFilter;
+    if (q) params.q = q;
     const prompts = await api('/api/prompts', params);
     state.prompts = prompts;
     if (prompts.length === 0) {
-      main.innerHTML = `<div class="empty">No prompts yet${state.projectSlug ? ` in ${state.projectSlug}` : ''}.</div>`;
+      list.innerHTML = `<div class="empty">No prompts found.</div>`;
       return;
     }
-    main.innerHTML = `
-      <div class="mb-3 text-xs text-subtext0">${prompts.length} most-recent prompts${state.projectSlug ? ` in <span class="text-mauve">${escapeHtml(state.projectSlug)}</span>` : ' across all projects'}</div>
-      <div class="space-y-2">
-        ${prompts.map(renderPromptCard).join('\n')}
-      </div>
-    `;
-    main.querySelectorAll('[data-session]').forEach(el => {
-      el.addEventListener('click', () => {
-        state.currentSession = el.dataset.session;
-        navigate('transcript');
-      });
-    });
-    main.querySelectorAll('.preview').forEach(el => {
-      el.addEventListener('click', () => el.classList.toggle('expanded'));
-    });
+    list.innerHTML = prompts.map(renderPromptCard).join('\n');
+    wireCards(list);
   } catch (e) {
-    main.innerHTML = `<div class="empty text-red">Error: ${escapeHtml(e.message)}</div>`;
+    list.innerHTML = `<div class="empty text-red">Error: ${escapeHtml(e.message)}</div>`;
   }
 }
 
+function wireCards(root) {
+  root.querySelectorAll('[data-event-id]').forEach(el => {
+    el.addEventListener('click', () => {
+      const eventId = el.dataset.eventId;
+      const prompt = (state.prompts || []).concat(state.searchResults?.results || []).find(p => p.event_id === eventId);
+      if (prompt) {
+        state.currentPromptDetail = prompt;
+        state.currentSession = prompt.session_id;
+        renderDetail();
+      }
+    });
+  });
+  root.querySelectorAll('.preview').forEach(el => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      el.classList.toggle('expanded');
+    });
+  });
+}
+
 async function renderTranscriptTab() {
-  const main = document.getElementById('main');
+  const main = document.getElementById('view-root');
   if (!state.currentSession) {
-    // Pick most-recent session from index
     try {
       const sessions = await api('/api/sessions', { limit: 1 });
       if (sessions.length === 0) {
@@ -350,20 +440,18 @@ async function renderTranscriptTab() {
       return;
     }
     main.innerHTML = `
-      <div class="mb-3 flex items-center gap-3 text-xs">
+      <div class="mb-3 flex items-center gap-3 text-xs flex-wrap">
         <div class="text-subtext0">
-          Session <span class="text-mauve font-bold" id="current-session-id">${escapeHtml(t.session_id.slice(0, 8))}…</span>
-          in <span class="text-sky">${escapeHtml(t.project_slug)}</span>
+          Session <code class="text-mauve">${escapeHtml(t.session_id.slice(0, 8))}…</code>
+          in <span class="text-sky">${escapeHtml(shortenSlug(t.project_slug))}</span>
           · ${t.event_count} event${t.event_count === 1 ? '' : 's'}
         </div>
         <div class="ml-auto flex gap-1">
-          <button class="nav-tab text-xs ${state.transcriptMode==='clean'?'active':''}" data-mode="clean">Clean</button>
-          <button class="nav-tab text-xs ${state.transcriptMode==='full'?'active':''}" data-mode="full">Full</button>
+          <button class="view-nav-item ${state.transcriptMode==='clean'?'active':''}" data-mode="clean">Clean</button>
+          <button class="view-nav-item ${state.transcriptMode==='full'?'active':''}" data-mode="full">Full</button>
         </div>
       </div>
-      <div class="space-y-2">
-        ${t.events.map(renderEventRow).join('\n')}
-      </div>
+      <div>${t.events.map(renderEventRow).join('\n')}</div>
     `;
     main.querySelectorAll('[data-mode]').forEach(el => {
       el.addEventListener('click', () => {
@@ -380,17 +468,18 @@ async function renderTranscriptTab() {
 }
 
 async function renderSearchTab() {
-  const main = document.getElementById('main');
+  const main = document.getElementById('view-root');
   main.innerHTML = `
-    <form id="search-form" class="mb-4 flex gap-2 items-center">
-      <input type="text" name="q" placeholder="Search across all logged prompts + events…" class="txt flex-1" autocomplete="off" />
+    <form id="search-form" class="mb-4 flex gap-2 items-center flex-wrap">
+      <input type="text" name="q" placeholder="Search prompts + events…" class="txt flex-1 min-w-[260px]" autocomplete="off" autofocus />
       <select name="mode" class="txt">
         <option value="prompts">Prompts (FTS5)</option>
         <option value="events">All events (FTS5)</option>
       </select>
-      <button type="submit" class="nav-tab font-press text-xs px-3 active">Go</button>
+      <button type="submit" class="view-nav-item active">Go</button>
     </form>
-    <div id="search-results" class="space-y-2"></div>
+    <div class="text-xs text-overlay0 mb-3">FTS5 supports: <code>foo AND bar</code>, <code>"exact phrase"</code>, <code>fo*</code>. Hyphens auto-quoted.</div>
+    <div id="search-results"></div>
   `;
   const form = document.getElementById('search-form');
   const resultsEl = document.getElementById('search-results');
@@ -399,10 +488,7 @@ async function renderSearchTab() {
     const fd = new FormData(form);
     const q = fd.get('q');
     const mode = fd.get('mode');
-    if (!q) {
-      resultsEl.innerHTML = '';
-      return;
-    }
+    if (!q) { resultsEl.innerHTML = ''; return; }
     resultsEl.innerHTML = `<div class="empty">Searching…</div>`;
     try {
       const r = await api('/api/search', { q, mode });
@@ -415,15 +501,7 @@ async function renderSearchTab() {
         <div class="text-xs text-subtext0 mb-2">${r.results.length} match${r.results.length === 1 ? '' : 'es'} for "${escapeHtml(r.q)}" (${escapeHtml(r.mode)} mode)</div>
         ${r.results.map(renderPromptCard).join('\n')}
       `;
-      resultsEl.querySelectorAll('[data-session]').forEach(el => {
-        el.addEventListener('click', () => {
-          state.currentSession = el.dataset.session;
-          navigate('transcript');
-        });
-      });
-      resultsEl.querySelectorAll('.preview').forEach(el => {
-        el.addEventListener('click', () => el.classList.toggle('expanded'));
-      });
+      wireCards(resultsEl);
     } catch (e) {
       resultsEl.innerHTML = `<div class="empty text-red">Error: ${escapeHtml(e.message)}</div>`;
     }
@@ -431,7 +509,7 @@ async function renderSearchTab() {
 }
 
 async function renderSettingsTab() {
-  const main = document.getElementById('main');
+  const main = document.getElementById('view-root');
   main.innerHTML = `<div class="empty">Loading stats…</div>`;
   try {
     const stats = await api('/api/stats');
@@ -440,29 +518,29 @@ async function renderSettingsTab() {
     main.innerHTML = `
       <div class="space-y-4">
         <div class="card p-4">
-          <div class="font-press text-sm text-mauve mb-3">Corpus health</div>
+          <div class="font-pixel text-sm text-mauve mb-3">CORPUS HEALTH</div>
           <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-            <div><div class="text-subtext0 text-xs">Prompts</div><div class="text-2xl font-bold text-mauve">${stats.key_metric?.toLocaleString() || 0}</div></div>
-            <div><div class="text-subtext0 text-xs">Projects</div><div class="text-2xl font-bold text-sky">${stats.projects?.toLocaleString() || 0}</div></div>
-            <div><div class="text-subtext0 text-xs">Sessions</div><div class="text-2xl font-bold text-green">${stats.sessions?.toLocaleString() || 0}</div></div>
-            <div><div class="text-subtext0 text-xs">Total events</div><div class="text-2xl font-bold text-teal">${stats.events?.toLocaleString() || 0}</div></div>
+            <div><div class="text-subtext0 text-xs">Prompts</div><div class="text-2xl font-bold text-mauve">${(stats.key_metric||0).toLocaleString()}</div></div>
+            <div><div class="text-subtext0 text-xs">Projects</div><div class="text-2xl font-bold text-sky">${(stats.projects||0).toLocaleString()}</div></div>
+            <div><div class="text-subtext0 text-xs">Sessions</div><div class="text-2xl font-bold text-green">${(stats.sessions||0).toLocaleString()}</div></div>
+            <div><div class="text-subtext0 text-xs">Total events</div><div class="text-2xl font-bold text-teal">${(stats.events||0).toLocaleString()}</div></div>
           </div>
           ${stats.last_synced_at ? `<div class="mt-3 text-xs text-overlay0">Rollup last synced: <span class="text-subtext0">${escapeHtml(stats.last_synced_at)}</span></div>` : ''}
         </div>
 
         <div class="card p-4">
-          <div class="font-press text-sm text-mauve mb-3">Event-type distribution</div>
+          <div class="font-pixel text-sm text-mauve mb-3">EVENT-TYPE DISTRIBUTION</div>
           <div class="space-y-1 text-sm">
             ${types.slice(0, 15).map(([t, n]) => {
               const max = types[0][1];
               const pct = (n / max) * 100;
               return `
                 <div class="flex items-center gap-2">
-                  <div class="w-48 text-subtext0">${escapeHtml(t)}</div>
-                  <div class="flex-1 bg-surface0 h-4 rounded overflow-hidden relative">
+                  <div class="w-48 text-subtext0 truncate">${escapeHtml(t)}</div>
+                  <div class="flex-1 bg-surface0 h-4 rounded overflow-hidden">
                     <div class="bg-mauve h-full" style="width: ${pct}%"></div>
                   </div>
-                  <div class="text-overlay1 text-xs w-16 text-right">${n.toLocaleString()}</div>
+                  <div class="text-overlay1 text-xs w-20 text-right">${n.toLocaleString()}</div>
                 </div>
               `;
             }).join('\n')}
@@ -470,13 +548,13 @@ async function renderSettingsTab() {
         </div>
 
         <div class="card p-4">
-          <div class="font-press text-sm text-mauve mb-3">About</div>
+          <div class="font-pixel text-sm text-mauve mb-3">ABOUT</div>
           <div class="space-y-2 text-xs text-subtext0">
             <div>Plugin: <span class="text-text">claude-logging v2.0.0-pre</span> · task-508 Phase 2</div>
             <div>Namespace: <span class="text-text">legion.claude-logging</span></div>
             <div>Cross-project index: <span class="text-text">~/.claude/local/logging/_index/index.db</span></div>
             <div>Capture pipeline: 25 hook event types · WAL journal · JSONL source-of-truth · SQLite rebuildable</div>
-            <div>Cluster role: 8th satellite of claude-webui (Surfacing cluster)</div>
+            <div>Cluster role: 9th satellite of claude-webui (Observability cluster)</div>
             <div class="pt-2 text-overlay0 italic">Phase 2 ships 4 tabs. Phases 4-9 add Queue (TTS YouTube-style), Live (SSE), Slice (10 charts), Annotations, Pastes, mobile-responsive layout.</div>
           </div>
         </div>
@@ -499,14 +577,15 @@ const tabRenderers = {
 function navigate(tab) {
   if (!tabRenderers[tab]) tab = 'prompts';
   state.tab = tab;
-  document.querySelectorAll('.nav-tab[data-tab]').forEach(el => {
+  document.querySelectorAll('.view-nav-item[data-tab]').forEach(el => {
     el.classList.toggle('active', el.dataset.tab === tab);
   });
   const newHash = '#' + tab + (tab === 'transcript' && state.currentSession ? '?session=' + state.currentSession : '');
-  if (window.location.hash !== newHash) {
-    window.location.hash = newHash;
-  }
+  if (window.location.hash !== newHash) window.location.hash = newHash;
   tabRenderers[tab]();
+  // Close mobile sidebar on nav
+  document.body.classList.remove('scrim-open');
+  document.getElementById('mobile-scrim').classList.add('hidden');
 }
 
 function parseHash() {
@@ -520,7 +599,20 @@ function parseHash() {
   return tab || 'prompts';
 }
 
-// ── Health badge ───────────────────────────────────────────────────
+// ── Stats / health / projects boot ─────────────────────────────────
+
+async function refreshStats() {
+  try {
+    const s = await api('/api/stats');
+    state.stats = s;
+    document.getElementById('stat-prompts').textContent = (s.key_metric || 0).toLocaleString();
+    document.getElementById('stat-events').textContent = (s.events || 0).toLocaleString();
+    document.getElementById('stat-projects').textContent = (s.projects || 0).toLocaleString();
+    document.getElementById('stat-sessions').textContent = (s.sessions || 0).toLocaleString();
+  } catch (e) {
+    console.error('stats failed:', e);
+  }
+}
 
 async function refreshHealthBadge() {
   try {
@@ -532,15 +624,11 @@ async function refreshHealthBadge() {
     } else {
       slot.innerHTML = `<span class="text-red" title="${escapeHtml((j.issues || []).join(' · '))}">●</span>`;
     }
-    document.getElementById('footer-status').textContent =
-      `${(j.stats?.key_metric || 0).toLocaleString()} events · ${j.stats?.projects || 0} projects`;
+    document.getElementById('footer-status').textContent = `${(j.stats?.key_metric || 0).toLocaleString()} events · ${j.stats?.projects || 0} projects`;
   } catch (e) {
-    const slot = document.getElementById('healthz-slot');
-    slot.innerHTML = `<span class="text-red">●</span>`;
+    document.getElementById('healthz-slot').innerHTML = `<span class="text-red">●</span>`;
   }
 }
-
-// ── Project filter ─────────────────────────────────────────────────
 
 async function loadProjects() {
   try {
@@ -548,17 +636,37 @@ async function loadProjects() {
     state.projects = projects;
     const sel = document.getElementById('project-filter');
     sel.innerHTML = '<option value="">All projects</option>' +
-      projects.map(p =>
-        `<option value="${escapeHtml(p.project_slug)}">${escapeHtml(p.project_slug)} (${p.event_count.toLocaleString()})</option>`
+      projects.slice(0, 50).map(p =>
+        `<option value="${escapeHtml(p.project_slug)}">${escapeHtml(shortenSlug(p.project_slug))} (${p.event_count.toLocaleString()})</option>`
       ).join('');
-  } catch (e) {
-    console.error('loadProjects failed:', e);
-  }
+  } catch (e) { console.error('loadProjects failed:', e); }
+}
+
+function renderPersonaFilter() {
+  const root = document.getElementById('persona-filter');
+  const items = [{ slug: '', label: 'all' }, ...PERSONAS.map(p => ({ slug: p, label: p }))];
+  root.innerHTML = items.map(p => {
+    const cls = p.slug ? `persona-${personaCls(p.slug) || 'claude'}` : '';
+    const active = state.personaFilter === p.slug;
+    return `
+      <div class="persona-item flex items-center gap-2 px-1 py-0.5 rounded cursor-pointer ${active ? 'bg-surface0' : 'hover:bg-surface0'}" data-persona="${escapeHtml(p.slug)}">
+        <span class="persona-rail h-3 ${cls}"></span>
+        <span class="${active ? 'text-mauve' : 'text-subtext0'}">${escapeHtml(p.label)}</span>
+      </div>
+    `;
+  }).join('');
+  root.querySelectorAll('[data-persona]').forEach(el => {
+    el.addEventListener('click', () => {
+      state.personaFilter = el.dataset.persona;
+      renderPersonaFilter();
+      tabRenderers[state.tab]();
+    });
+  });
 }
 
 // ── Wire up ────────────────────────────────────────────────────────
 
-document.querySelectorAll('.nav-tab[data-tab]').forEach(el => {
+document.querySelectorAll('.view-nav-item[data-tab]').forEach(el => {
   el.addEventListener('click', () => navigate(el.dataset.tab));
 });
 
@@ -567,17 +675,41 @@ document.getElementById('project-filter').addEventListener('change', (e) => {
   tabRenderers[state.tab]();
 });
 
+// Mobile sidebar toggle
+document.querySelectorAll('[data-action="open-sidebar"]').forEach(el => {
+  el.addEventListener('click', () => {
+    document.body.classList.add('scrim-open');
+    document.getElementById('mobile-scrim').classList.remove('hidden');
+  });
+});
+document.querySelectorAll('[data-action="close-sidebar"]').forEach(el => {
+  el.addEventListener('click', () => {
+    document.body.classList.remove('scrim-open');
+    document.getElementById('mobile-scrim').classList.add('hidden');
+  });
+});
+
 window.addEventListener('hashchange', () => {
   const tab = parseHash();
   if (tab !== state.tab) navigate(tab);
 });
 
+// Show hub-backlink in Mode B (mounted under Platform)
+(function showHubBacklinkInModeB() {
+  const segs = window.location.pathname.split('/').filter(Boolean);
+  if (segs.length > 0 && segs[0] !== 'home') {
+    const link = document.getElementById('hub-backlink');
+    if (link) link.classList.remove('hidden');
+  }
+})();
+
 // Boot
 (async () => {
-  await Promise.all([loadProjects(), refreshHealthBadge()]);
+  renderPersonaFilter();
+  await Promise.all([loadProjects(), refreshStats(), refreshHealthBadge()]);
   navigate(parseHash());
-  // Refresh health every 30s
   setInterval(refreshHealthBadge, 30000);
+  setInterval(refreshStats, 60000);
 })();
 </script>
 </body>
