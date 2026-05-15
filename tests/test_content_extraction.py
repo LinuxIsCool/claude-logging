@@ -89,7 +89,8 @@ class TestPostToolUse:
     def test_bash_with_output(self):
         data = {"tool_name": "Bash", "tool_response": {"stdout": "hello\nworld"}}
         result = extract_content("PostToolUse", data)
-        assert "Output:" in result
+        # Code emits "Output (N lines): ..." for multi-line stdout; match prefix.
+        assert "Output (" in result
         assert "hello" in result
 
     def test_bash_long_output(self):
