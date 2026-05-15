@@ -39,8 +39,23 @@ Agents MAY rely on the stability of:
      (SQLite + FTS5) + `sessions/*.jsonl` (raw event log).
    - Path encoding: `/home/shawn` → `-home-shawn`; replaces `/` with
      `-`. Use this exact encoding when locating a project's DB.
-   - SQLite schema (table `events`): `id INTEGER PRIMARY KEY, type TEXT,
-     session_id TEXT, ts INTEGER, content TEXT, payload_json TEXT`.
+   - SQLite schema (table `events`): `id TEXT PRIMARY KEY, type TEXT,
+     session_id TEXT, ts TIMESTAMP, data JSON, content TEXT,
+     agent_session_num INTEGER`.
+   - **v2-pre additive columns (task-508 Phase 1, applied 2026-05-15)**:
+     `persona TEXT, agent_id TEXT, tool_name TEXT, tool_input_hash TEXT,
+     duration_ms INTEGER, tokens_in INTEGER, tokens_out INTEGER, cost_usd REAL`.
+     Schema migration tooling at `scripts/v2/run_migration_001.py`. All
+     205 per-project DBs migrated; tool_name + tool_input_hash + duration_ms
+     backfilled. persona/agent_id/tokens/cost populated at capture-time
+     (Phase 1.4 wave).
+   - **v2-pre new tables**: `prompts` (denormalized UserPromptSubmit pairs),
+     `annotations` (operator overlay), `pastes` (long-paste artifacts),
+     `tool_calls` (denormalized pre/post tool pair). FTS5 mirror at
+     `prompts_fts`.
+   - **v2-pre cross-project index**: `~/.claude/local/logging/_index/index.db`
+     with `events_index`, `events_index_fts`, `rollup_state`, `hostnames`
+     tables. Populated by 60s rollup cron (Phase 1.5).
    - FTS5 virtual table `events_fts` mirrors `(content)` column.
    - Event types: all 25 Claude Code hook events
      (UserPromptSubmit, PreToolUse, PostToolUse, Stop, SubagentStop,
