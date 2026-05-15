@@ -1,0 +1,19 @@
+web-legacy snapshotted from web/ at 2026-05-15T11:45:21-07:00
+
+Source commit: 077eb90c9fd5b3c6fb89aafb4d02a5df94b688a6 (claude-logging-v1-final tag)
+
+task-508 Phase 0 quarantine — retire after 2026-06-14 (30 days)
+
+Original purpose: Next.js renderer for claude-logging. Migration to
+kernel-webui pattern lives in task-508. This is the rollback / reference
+copy retained for the 30-day grace period.
+
+Restore command (if v2 has gaps and operator needs v1 back):
+  cd ~/.claude/plugins/local/legion-plugins/plugins/claude-logging
+  rm -rf web/
+  rsync -a web-legacy/ web/
+  cd web && npm install && npm run dev
+
+References:
+- ~/.claude/local/backlog/task-508 - claude-logging-v2-modernization-sacred-plugin-rebuild.md
+- ~/.claude/plans/2026-05-14-task-508-phase-0-execution.md
