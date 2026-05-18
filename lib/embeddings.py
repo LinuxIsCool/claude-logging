@@ -28,17 +28,20 @@ class EmbeddingService:
 
     def _load_model(self) -> bool:
         """Attempt to load the embedding model."""
+        import sys
+        import traceback
         try:
             from sentence_transformers import SentenceTransformer
 
             self.model = SentenceTransformer(self.model_name)
             self.dimension = self.model.get_sentence_embedding_dimension()
             return True
-        except ImportError:
-            # sentence-transformers not installed
+        except ImportError as e:
+            print(f"[embeddings] ImportError loading sentence-transformers: {e}", file=sys.stderr)
             return False
-        except Exception:
-            # Model loading failed
+        except Exception as e:
+            print(f"[embeddings] FAILED to load model {self.model_name}: {type(e).__name__}: {e}", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
             return False
 
     @property
