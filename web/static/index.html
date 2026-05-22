@@ -125,6 +125,7 @@
     <select id="project-filter" class="txt text-xs hidden lg:block">
       <option value="">All projects</option>
     </select>
+    <span id="live-slot" class="text-xs text-overlay0" title="real-time push connection status">○</span>
     <span id="healthz-slot" class="text-xs text-overlay0">·</span>
   </div>
 </header>
@@ -703,6 +704,89 @@ window.addEventListener('hashchange', () => {
   }
 })();
 
+// ── Real-time push (task-534 Phase 2) ──────────────────────────────
+//
+// Subscribes to /api/events SSE on the kernel. On every corpus-changed
+// payload (push by the rollup_daemon via signature_fn polling at 200ms),
+// re-render the currently visible tab. Falls back to a 15s polling refresh
+// when the stream disconnects. live-slot dot reflects current state.
+
+const liveSlot = document.getElementById('live-slot');
+function setLiveDot(color, title) {
+  liveSlot.className = `text-xs text-${color}`;
+  liveSlot.textContent = '●'; // ● — set as text, not HTML
+  liveSlot.title = title;
+}
+
+let _liveRefetchTimer = null;
+function scheduleLiveRefetch() {
+  // Coalesce bursts: multiple corpus-changed events within 100ms become
+  // one re-render.
+  if (_liveRefetchTimer) return;
+  _liveRefetchTimer = setTimeout(() => {
+    _liveRefetchTimer = null;
+    const r = tabRenderers[state.tab];
+    if (r) Promise.resolve(r()).catch(e => console.warn('live re-render failed:', e));
+    refreshHealthBadge().catch(() => {});
+  }, 100);
+}
+
+let _es = null;
+let _esReconnectMs = 1000;
+let _pollFallbackTimer = null;
+
+function startPollFallback() {
+  if (_pollFallbackTimer) return;
+  setLiveDot('yellow', 'SSE disconnected — polling every 15s');
+  _pollFallbackTimer = setInterval(() => {
+    const r = tabRenderers[state.tab];
+    if (r) Promise.resolve(r()).catch(() => {});
+  }, 15000);
+}
+
+function stopPollFallback() {
+  if (_pollFallbackTimer) {
+    clearInterval(_pollFallbackTimer);
+    _pollFallbackTimer = null;
+  }
+}
+
+function connectSSE() {
+  if (_es) { try { _es.close(); } catch (e) {} _es = null; }
+  const url = pathPrefix() + '/api/events';
+  try {
+    _es = new EventSource(url);
+  } catch (e) {
+    setLiveDot('red', 'EventSource unsupported');
+    startPollFallback();
+    return;
+  }
+  _es.onopen = () => {
+    _esReconnectMs = 1000;
+    stopPollFallback();
+    setLiveDot('green', 'live — push connected');
+  };
+  _es.onmessage = (ev) => {
+    let payload = null;
+    try { payload = JSON.parse(ev.data); } catch (e) {}
+    if (!payload) return;
+    if (payload.event === 'connected') return;     // initial handshake
+    if (payload.event === 'corpus-changed') {
+      scheduleLiveRefetch();
+    }
+  };
+  _es.onerror = () => {
+    setLiveDot('yellow', 'SSE reconnecting…');
+    startPollFallback();
+    setTimeout(() => {
+      if (_es && _es.readyState === 2 /* CLOSED */) {
+        _esReconnectMs = Math.min(_esReconnectMs * 2, 30000);
+        connectSSE();
+      }
+    }, _esReconnectMs);
+  };
+}
+
 // Boot
 (async () => {
   renderPersonaFilter();
@@ -710,6 +794,8 @@ window.addEventListener('hashchange', () => {
   navigate(parseHash());
   setInterval(refreshHealthBadge, 30000);
   setInterval(refreshStats, 60000);
+  setLiveDot('overlay0', 'connecting…');
+  connectSSE();
 })();
 </script>
 </body>

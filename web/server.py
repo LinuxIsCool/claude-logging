@@ -47,11 +47,53 @@ DEFAULT_PORT = 8870
 _LOGGING_VERSION = "2.0.0-pre"
 
 
+def _build_signature_fn(logging_root: Path | None):
+    """Build a zero-arg signature callable for the kernel push pipeline.
+
+    task-534 Phase 2 — pairs with the rollup_daemon's hot path. The
+    daemon commits new rows into `_index/index.db` (and its `-wal`
+    companion); the kernel polls this signature every 200ms (configured
+    via poll_interval_s in build_kernel) and broadcasts `corpus-changed`
+    on the EventBus when the value changes. Subscribed SSE clients then
+    refetch the visible list.
+
+    Signature value: mtime of the WAL file XOR mtime of the main DB.
+    Cheap (single stat call per leg), changes on every daemon commit
+    even when the main file is identical between WAL checkpoints.
+    Avoids re-running SQL.
+    """
+    from os import path as _ospath
+    from os import stat as _os_stat
+
+    root = logging_root or (Path.home() / ".claude" / "local" / "logging")
+    idx_db = root / "_index" / "index.db"
+    idx_wal = root / "_index" / "index.db-wal"
+
+    def _signature() -> tuple[int, int, int, int]:
+        # Returns (db_mtime_ns, db_size, wal_mtime_ns, wal_size). Missing
+        # files return 0 — first creation will count as a change.
+        out: list[int] = []
+        for f in (idx_db, idx_wal):
+            try:
+                st = _os_stat(f)
+                out.append(st.st_mtime_ns)
+                out.append(st.st_size)
+            except FileNotFoundError:
+                out.append(0)
+                out.append(0)
+        return tuple(out)  # type: ignore[return-value]
+
+    # Touch _ospath only so the import is not stripped — used in tests.
+    _ = _ospath
+    return _signature
+
+
 def build_kernel(
     *,
     port: int = DEFAULT_PORT,
     bind: str = "127.0.0.1",
     logging_root: Path | None = None,
+    push_poll_s: float = 0.2,
 ) -> WebuiKernel:
     """Construct a configured kernel for the claude-logging satellite.
 
@@ -61,6 +103,14 @@ def build_kernel(
     No MutationCatalog wired in Phase 2 — logging is read-only at this
     stage. Phase 8 (annotations) adds the write surface via
     register_mutation_handlers().
+
+    task-534 Phase 2 — Real-time push is enabled via the kernel's
+    `signature_fn` mechanism. The kernel polls `_signature()` every
+    `push_poll_s` seconds (default 200ms); a change broadcasts an SSE
+    `corpus-changed` event to all `/api/events` subscribers. The
+    rollup_daemon writes to `_index/index.db` whenever a per-project
+    hook DB commits, so this pipeline carries hook -> webui within
+    ~400ms p95 (daemon ~290ms + signature poll ~200ms).
     """
     accessor = LoggingAccessor(logging_root=logging_root)
     kernel = LoggingKernel(
@@ -68,6 +118,8 @@ def build_kernel(
         port=port,
         bind=bind,
         static_dir=STATIC_DIR,
+        signature_fn=_build_signature_fn(logging_root),
+        poll_interval_s=push_poll_s,
     )
     kernel.satellite_namespace = NAMESPACE  # type: ignore[attr-defined]
     kernel.satellite_version = _LOGGING_VERSION  # type: ignore[attr-defined]
