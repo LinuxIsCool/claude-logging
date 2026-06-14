@@ -24,6 +24,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import os
 import platform
 import sqlite3
@@ -209,25 +210,29 @@ def run_reconcile_all(dry_run: bool = False, quiet: bool = False) -> int:
     idx_con = sqlite3.connect(INDEX_DB, timeout=30.0)
     total = 0
     dbs = discover_dbs()
-    for i, (slug, db) in enumerate(dbs, 1):
-        try:
-            if dry_run:
-                proj = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=30.0)
-                src_count = proj.execute("SELECT COUNT(*) FROM events").fetchone()[0]
-                proj.close()
-                drift = max(0, src_count - _index_count(idx_con, slug))
-                if drift and not quiet:
-                    print(f"  {i:3}/{len(dbs)} DRIFT {drift:6,} {slug}")
-                total += drift
-            else:
-                recovered, _ = reconcile_project(idx_con, slug, db)
-                idx_con.commit()
-                if recovered and not quiet:
-                    print(f"  {i:3}/{len(dbs)} +{recovered:6,} {slug}")
-                total += recovered
-        except Exception as e:
-            print(f"  {i:3}/{len(dbs)} ERROR {slug}: {type(e).__name__}: {e}")
-    idx_con.close()
+    try:
+        for i, (slug, db) in enumerate(dbs, 1):
+            try:
+                if dry_run:
+                    proj = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=30.0)
+                    src_count = proj.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+                    proj.close()
+                    drift = max(0, src_count - _index_count(idx_con, slug))
+                    if drift and not quiet:
+                        print(f"  {i:3}/{len(dbs)} DRIFT {drift:6,} {slug}")
+                    total += drift
+                else:
+                    recovered, _ = reconcile_project(idx_con, slug, db)
+                    idx_con.commit()
+                    if recovered and not quiet:
+                        print(f"  {i:3}/{len(dbs)} +{recovered:6,} {slug}")
+                    total += recovered
+            except Exception as e:
+                with contextlib.suppress(Exception):
+                    idx_con.rollback()
+                print(f"  {i:3}/{len(dbs)} ERROR {slug}: {type(e).__name__}: {e}")
+    finally:
+        idx_con.close()
     verb = "would recover" if dry_run else "recovered"
     print(f"=== RECONCILE: {verb} {total:,} events across {len(dbs)} shards ===")
     return total
