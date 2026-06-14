@@ -60,6 +60,7 @@ from rollup_index import (  # noqa: E402
     INDEX_DB,
     LOGGING_ROOT,
     discover_dbs,
+    reconcile_project,
     rollup_project,
     update_hostname_state,
     update_rollup_state,
@@ -75,6 +76,14 @@ HEALTH_INTERVAL_SEC = 10        # rewrite health JSON every 10s
 HEALTH_PATH = LOGGING_ROOT / "_index" / "daemon-health.json"
 
 LOG_FORMAT = "%(asctime)s %(levelname)s %(message)s"
+
+
+def _shard_event_count(db_path: Path) -> int:
+    con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=30.0)
+    try:
+        return con.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+    finally:
+        con.close()
 
 
 def _setup_logging(verbose: bool) -> None:
@@ -150,6 +159,8 @@ class RollupDaemon:
         self.last_reconcile_ts = 0.0
         self.last_fs_event_ts = 0.0
         self.last_insert_ts = 0.0
+        self.completeness_index_total = 0
+        self.completeness_source_total = 0
 
     # ----- index DB connection -----
 
@@ -200,6 +211,30 @@ class RollupDaemon:
                 logging.exception("shard error: %s -> %s", slug, msg)
                 self.degraded[slug] = msg
             return 0, None
+
+    def _reconcile_one(self, slug: str, db_path: Path) -> tuple[int, int]:
+        """True completeness reconcile for one shard, with degraded-shard guard.
+        Returns (inserted, index_count)."""
+        con = self._open_index()
+        try:
+            inserted, idx_count = reconcile_project(con, slug, db_path)
+            con.commit()
+            if slug in self.degraded:
+                logging.info("shard recovered: %s", slug)
+                self.degraded.pop(slug, None)
+            return inserted, idx_count
+        except sqlite3.OperationalError as e:
+            msg = str(e)
+            if self.degraded.get(slug) != msg:
+                logging.warning("shard degraded (reconcile): %s -> %s", slug, msg)
+                self.degraded[slug] = msg
+            return 0, 0
+        except Exception as e:
+            msg = f"{type(e).__name__}: {e}"
+            if self.degraded.get(slug) != msg:
+                logging.exception("shard error (reconcile): %s -> %s", slug, msg)
+                self.degraded[slug] = msg
+            return 0, 0
 
     # ----- watcher loop -----
 
@@ -287,20 +322,24 @@ class RollupDaemon:
         t0 = time.time()
         dbs = await asyncio.to_thread(discover_dbs)
         total_inserted = 0
-        global_max_ts: str | None = None
+        index_total = 0
+        source_total = 0
         for slug, db in dbs:
-            inserted, max_ts = await asyncio.to_thread(self._rollup_one, slug, db)
+            inserted, idx_count = await asyncio.to_thread(self._reconcile_one, slug, db)
             total_inserted += inserted
-            if max_ts:
-                self.shard_max_ts[slug] = max_ts
-                if global_max_ts is None or max_ts > global_max_ts:
-                    global_max_ts = max_ts
+            index_total += idx_count
+            try:
+                src_count = await asyncio.to_thread(_shard_event_count, db)
+            except Exception:
+                src_count = idx_count
+            source_total += src_count
             if inserted > 0:
                 self.shard_last_insert[slug] = time.time()
-        # Update hostname state
+        self.completeness_index_total = index_total
+        self.completeness_source_total = source_total
         if self.idx_con is not None:
             await asyncio.to_thread(
-                update_hostname_state, self.idx_con, HOSTNAME, len(dbs), global_max_ts
+                update_hostname_state, self.idx_con, HOSTNAME, len(dbs), None
             )
             await asyncio.to_thread(self.idx_con.commit)
         self.reconciles_total += 1
@@ -310,8 +349,9 @@ class RollupDaemon:
             self.last_insert_ts = time.time()
         dur = time.time() - t0
         logging.info(
-            "reconcile #%d: %d shards, +%d events, %.2fs",
-            self.reconciles_total, len(dbs), total_inserted, dur,
+            "reconcile #%d: %d shards, +%d recovered, %d/%d indexed, %.2fs",
+            self.reconciles_total, len(dbs), total_inserted,
+            index_total, source_total, dur,
         )
 
     # ----- health loop -----
