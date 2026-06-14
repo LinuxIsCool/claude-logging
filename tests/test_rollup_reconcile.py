@@ -171,7 +171,7 @@ def test_run_reconcile_all_over_shards(tmp_path, monkeypatch):
     con.close()
 
 
-def test_accessor_reads_completeness(tmp_path, monkeypatch):
+def test_accessor_reads_completeness(tmp_path):
     import json
     sys.path.insert(0, str(PLUGIN_ROOT / "web"))
     import logging_accessor
