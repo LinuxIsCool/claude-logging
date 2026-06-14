@@ -113,6 +113,17 @@ class LoggingAccessor:
         """Default detail — a single session transcript (clean mode)."""
         return self.transcript({"session": item_id, "mode": "clean"})
 
+    def _completeness(self) -> dict[str, Any] | None:
+        """Read the daemon's last index-completeness snapshot, if present."""
+        health = self.index_db.parent / "daemon-health.json"
+        if not health.exists():
+            return None
+        try:
+            import json
+            return json.loads(health.read_text()).get("index_completeness")
+        except Exception:
+            return None
+
     def stats(self) -> dict[str, Any]:
         """Corpus health summary across all projects."""
         if not self.index_db.exists():
@@ -140,6 +151,7 @@ class LoggingAccessor:
             last_synced = con.execute(
                 "SELECT MAX(last_synced_at) FROM rollup_state"
             ).fetchone()[0]
+            completeness = self._completeness()
             return {
                 "key_metric": prompt_count,
                 "key_metric_label": "prompts",
@@ -148,6 +160,7 @@ class LoggingAccessor:
                 "events": event_count,
                 "events_by_type": type_counts,
                 "last_synced_at": last_synced,
+                "completeness": completeness,
             }
         finally:
             con.close()
@@ -231,6 +244,13 @@ class LoggingAccessor:
                 ok = False
                 issues.append(f"index DB query failed: {e}")
 
+        completeness = self._completeness()
+        if completeness and completeness.get("missing", 0) > 0:
+            issues.append(
+                f"index incomplete: {completeness['missing']} events missing "
+                f"({completeness.get('pct', 0)}%)"
+            )
+
         # Heartbeat check
         heartbeat = self.root.parent / "health" / "logging.json"
         heartbeat_age_s = None
@@ -254,6 +274,7 @@ class LoggingAccessor:
                 "rollup_age_s": rollup_age_s,
                 "heartbeat_age_s": heartbeat_age_s,
             },
+            "completeness": completeness,
             "issues": issues,
         }
 

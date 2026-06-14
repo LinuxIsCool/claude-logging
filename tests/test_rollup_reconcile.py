@@ -171,6 +171,23 @@ def test_run_reconcile_all_over_shards(tmp_path, monkeypatch):
     con.close()
 
 
+def test_accessor_reads_completeness(tmp_path, monkeypatch):
+    import json
+    sys.path.insert(0, str(PLUGIN_ROOT / "web"))
+    import logging_accessor
+
+    root = tmp_path / "logging"
+    (root / "_index").mkdir(parents=True)
+    _make_index(root / "_index" / "index.db").close()
+    (root / "_index" / "daemon-health.json").write_text(json.dumps({
+        "index_completeness": {"index_total": 95, "source_total": 100, "missing": 5, "pct": 95.0}
+    }))
+
+    acc = logging_accessor.LoggingAccessor(logging_root=root)
+    comp = acc.stats().get("completeness")
+    assert comp is not None and comp["missing"] == 5 and comp["pct"] == 95.0
+
+
 def test_run_reconcile_all_dry_run_writes_nothing(tmp_path, monkeypatch):
     root = tmp_path / "logging"
     (root / "_index").mkdir(parents=True)
