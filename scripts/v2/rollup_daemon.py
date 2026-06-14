@@ -393,6 +393,14 @@ class RollupDaemon:
             "degraded_shards": dict(self.degraded),
             "degraded_count": len(self.degraded),
             "tracked_shards": len(self.shard_max_ts),
+            "index_completeness": {
+                "index_total": self.completeness_index_total,
+                "source_total": self.completeness_source_total,
+                "missing": max(0, self.completeness_source_total - self.completeness_index_total),
+                "pct": round(
+                    100.0 * self.completeness_index_total / self.completeness_source_total, 3
+                ) if self.completeness_source_total else 100.0,
+            },
             "pending_shards": len(self._pending),
         }
         tmp = HEALTH_PATH.with_suffix(HEALTH_PATH.suffix + ".tmp")
