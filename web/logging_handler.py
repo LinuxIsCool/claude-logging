@@ -46,6 +46,15 @@ class LoggingHandler(WebuiHandler):
             self._send_json(payload)
             return
 
+        if path == "/api/events":
+            try:
+                payload = self.accessor.events(params)  # type: ignore[attr-defined]
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": str(exc)}, status=500)
+                return
+            self._send_json(payload)
+            return
+
         if path == "/api/transcript":
             try:
                 payload = self.accessor.transcript(params)  # type: ignore[attr-defined]

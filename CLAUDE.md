@@ -140,3 +140,23 @@ SELECT type, COUNT(*) FROM events GROUP BY type;          -- event breakdown
 SELECT COUNT(*) FROM sessions;                            -- session count
 SELECT COUNT(*) FROM events WHERE type='UserPromptSubmit'; -- user prompts
 ```
+
+## Webui (satellite at :8800/logging) — Tailwind build
+
+The webui (`web/static/index.html`) serves a **precompiled** `web/static/tailwind.css`
+(NOT the Tailwind Play CDN — the CDN compiled in-browser, ~2s load, needed network).
+
+**⚠️ After editing ANY Tailwind class in `index.html`, rebuild the CSS or the new
+class won't exist and the layout silently breaks:**
+
+```bash
+cd web && ./build.sh           # one-shot rebuild
+cd web && ./build.sh --watch   # auto-rebuild on save (dev)
+```
+
+- Build config + input: `web/.twbuild/`. Output: `web/static/tailwind.css`.
+- Layout utilities (`grid-cols-12`, `col-span-1..12`, `lg:col-span-*`, `lg:block/hidden`)
+  and dynamic `text-/bg-/border-{catppuccin}` colors are **safelisted** in
+  `.twbuild/tailwind.config.js` so they always compile even if the content scan misses them.
+- Static files serve per-request — no service restart needed for HTML/CSS edits.
+  (Python accessor/handler changes DO need `systemctl --user restart claude-webui-platform`.)

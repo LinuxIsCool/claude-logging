@@ -232,6 +232,10 @@ class LoggingAccessor:
         project = params.get("project_slug")
         q = (params.get("q") or "").strip()
 
+        SORT_COLS = {"ts", "project_slug", "session_id"}
+        sort = params.get("sort") if params.get("sort") in SORT_COLS else "ts"
+        order = "ASC" if str(params.get("order", "desc")).lower() == "asc" else "DESC"
+
         if not self.index_db.exists():
             return []
 
@@ -257,7 +261,7 @@ class LoggingAccessor:
                     f"FROM events_index_fts fts "
                     f"JOIN events_index ei ON ei.event_id = fts.event_id "
                     f"WHERE fts.events_index_fts MATCH ? AND {' AND '.join(where_clauses)} "
-                    f"ORDER BY ei.ts DESC LIMIT ? OFFSET ?",
+                    f"ORDER BY ei.{sort} {order} LIMIT ? OFFSET ?",
                     (fts_query, *args, limit, offset),
                 )
             else:
@@ -265,7 +269,7 @@ class LoggingAccessor:
                     f"SELECT event_id, project_slug, session_id, type, ts, "
                     f"persona, content_preview, has_full_content "
                     f"FROM events_index WHERE {' AND '.join(where_clauses)} "
-                    f"ORDER BY ts DESC LIMIT ? OFFSET ?",
+                    f"ORDER BY {sort} {order} LIMIT ? OFFSET ?",
                     (*args, limit, offset),
                 )
 
@@ -286,10 +290,23 @@ class LoggingAccessor:
         }
 
     def sessions(self, params: dict[str, Any]) -> list[dict[str, Any]]:
-        """Cross-project session list, reverse-chrono by latest event."""
+        """Cross-project session list, reverse-chrono by latest event.
+
+        Each row is enriched with:
+          - title: the first UserPromptSubmit content_preview in the session
+                   (cheap derived title — persona/session_summaries are not
+                   in the index; see task-4114 Phase 0 findings).
+          - prompt_count: number of UserPromptSubmit events in the session.
+          - event_count, started_at, ended_at: aggregate over all events.
+        """
         limit = min(int(params.get("limit", DEFAULT_LIMIT)), MAX_LIMIT)
         offset = int(params.get("offset", 0))
         project = params.get("project_slug")
+
+        # Sortable aggregate columns (whitelist → safe to interpolate).
+        SORT_COLS = {"ended_at", "started_at", "event_count", "prompt_count"}
+        sort = params.get("sort") if params.get("sort") in SORT_COLS else "ended_at"
+        order = "ASC" if str(params.get("order", "desc")).lower() == "asc" else "DESC"
 
         if not self.index_db.exists():
             return []
@@ -298,20 +315,55 @@ class LoggingAccessor:
         try:
             where = "WHERE project_slug = ?" if project else ""
             args = (project,) if project else ()
+            # Pass 1 — session aggregates. GROUP BY session_id only (a session
+            # is one card even if its cwd/project changed mid-run). `project_slug`
+            # is a bare column → approximate (SQLite picks it from a min/max row);
+            # acceptable since ~all sessions keep one project. Avoids the slow
+            # per-group correlated subquery (~2s) measured in task-4114 Phase 1.
             cursor = con.execute(
-                f"SELECT session_id, project_slug, MIN(ts) AS started_at, MAX(ts) AS ended_at, "
-                f"COUNT(*) AS event_count FROM events_index {where} "
-                f"GROUP BY session_id, project_slug "
-                f"ORDER BY ended_at DESC LIMIT ? OFFSET ?",
+                f"SELECT session_id, project_slug, MIN(ts) AS started_at, "
+                f"MAX(ts) AS ended_at, COUNT(*) AS event_count, "
+                f"SUM(CASE WHEN type = 'UserPromptSubmit' THEN 1 ELSE 0 END) AS prompt_count "
+                f"FROM events_index {where} "
+                f"GROUP BY session_id "
+                f"ORDER BY {sort} {order} LIMIT ? OFFSET ?",
                 (*args, limit, offset),
             )
-            return [dict(row) for row in cursor]
+            rows = [dict(row) for row in cursor]
+            if not rows:
+                return []
+
+            # Pass 2 — title = first UserPromptSubmit preview per session.
+            # One windowed query over the ~12K UserPromptSubmit rows (cheap),
+            # scoped to just the page of session_ids we are returning.
+            ids = [r["session_id"] for r in rows]
+            placeholders = ",".join("?" * len(ids))
+            title_cursor = con.execute(
+                f"SELECT session_id, content_preview FROM ("
+                f"  SELECT session_id, content_preview, "
+                f"  ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY ts ASC) AS rn "
+                f"  FROM events_index "
+                f"  WHERE type = 'UserPromptSubmit' AND session_id IN ({placeholders})"
+                f") WHERE rn = 1",
+                ids,
+            )
+            titles = {r["session_id"]: r["content_preview"] for r in title_cursor}
+            for r in rows:
+                r["title"] = titles.get(r["session_id"])
+            return rows
         finally:
             con.close()
 
     def transcript(self, params: dict[str, Any]) -> dict[str, Any]:
-        """Single-session transcript. Modes: 'clean' (prompts + responses only)
-        or 'full' (all events)."""
+        """Single-session transcript, MERGED across every project_slug the
+        session touched. Modes: 'clean' (prompts + responses) or 'full' (all).
+
+        A Claude Code session can change cwd mid-run (CwdChanged), so its events
+        are split across multiple per-project DBs (each keyed by the cwd active
+        at capture time). Reading only one slice — the old `LIMIT 1` behaviour —
+        showed a near-empty transcript for any multi-cwd session (task-4114).
+        Here we read every slice and merge by timestamp.
+        """
         session_id = params.get("session", params.get("session_id"))
         mode = params.get("mode", "clean")
         if not session_id:
@@ -319,61 +371,142 @@ class LoggingAccessor:
         if not self.index_db.exists():
             return {"error": "index DB missing"}
 
-        # Find the project_slug for this session
+        # Every project_slug this session appears in, ordered by event volume
+        # so the densest slice is the canonical `project_slug` we report.
         idx_con = _open_ro(self.index_db)
         try:
-            row = idx_con.execute(
-                "SELECT project_slug FROM events_index WHERE session_id = ? LIMIT 1",
+            slug_rows = idx_con.execute(
+                "SELECT project_slug, COUNT(*) AS n FROM events_index "
+                "WHERE session_id = ? GROUP BY project_slug ORDER BY n DESC",
                 (session_id,),
-            ).fetchone()
-            if not row:
+            ).fetchall()
+            if not slug_rows:
                 return {"error": f"session not found: {session_id}"}
-            project_slug = row["project_slug"]
+            project_slugs = [r["project_slug"] for r in slug_rows]
         finally:
             idx_con.close()
-
-        # Read full events from per-project DB
-        proj_db = self.root / project_slug / "db" / "logging.db"
-        if not proj_db.exists():
-            return {"error": f"project DB missing: {proj_db}"}
 
         if mode == "clean":
             type_filter = "AND type IN ('UserPromptSubmit', 'AssistantResponse')"
         else:
             type_filter = ""
 
-        proj_con = _open_ro(proj_db)
+        events: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
+        slugs_read: list[str] = []
+        for slug in project_slugs:
+            proj_db = self.root / slug / "db" / "logging.db"
+            if not proj_db.exists():
+                continue
+            proj_con = _open_ro(proj_db)
+            try:
+                cursor = proj_con.execute(
+                    f"SELECT id, type, ts, persona, agent_id, tool_name, content, data "
+                    f"FROM events WHERE session_id = ? {type_filter}",
+                    (session_id,),
+                )
+                slug_had_rows = False
+                for row in cursor:
+                    if row["id"] in seen_ids:
+                        continue
+                    seen_ids.add(row["id"])
+                    slug_had_rows = True
+                    try:
+                        data = json.loads(row["data"]) if row["data"] else {}
+                    except json.JSONDecodeError:
+                        data = {}
+                    events.append({
+                        "event_id": row["id"],
+                        "type": row["type"],
+                        "ts": row["ts"],
+                        "persona": row["persona"],
+                        "agent_id": row["agent_id"],
+                        "tool_name": row["tool_name"],
+                        "content": row["content"],
+                        "data": data,
+                        "project_slug": slug,
+                    })
+                if slug_had_rows:
+                    slugs_read.append(slug)
+            finally:
+                proj_con.close()
+
+        # Single chronological order across all slices.
+        events.sort(key=lambda e: e["ts"] or "")
+
+        return {
+            "session_id": session_id,
+            "project_slug": project_slugs[0],
+            "project_slugs": slugs_read,
+            "mode": mode,
+            "event_count": len(events),
+            "events": events,
+        }
+
+    def events(self, params: dict[str, Any]) -> list[dict[str, Any]]:
+        """Cross-corpus event list with type filter + FTS + sort.
+
+        Powers "search/filter/sort across all transcripts' events". Params:
+          - types: comma-separated event types (e.g. "UserPromptSubmit,AssistantResponse")
+          - project_slug, session_id: scope filters
+          - q: FTS5 over content_preview
+          - sort: ts (default) | type | project_slug ; order: asc|desc
+          - limit, offset
+        """
+        limit = min(int(params.get("limit", DEFAULT_LIMIT)), MAX_LIMIT)
+        offset = int(params.get("offset", 0))
+        project = params.get("project_slug")
+        session = params.get("session_id") or params.get("session")
+        types_raw = (params.get("types") or "").strip()
+        types = [t for t in (s.strip() for s in types_raw.split(",")) if t]
+        q = (params.get("q") or "").strip()
+
+        SORT_COLS = {"ts", "type", "project_slug", "session_id"}
+        sort = params.get("sort") if params.get("sort") in SORT_COLS else "ts"
+        order = "ASC" if str(params.get("order", "desc")).lower() == "asc" else "DESC"
+
+        if not self.index_db.exists():
+            return []
+
+        con = _open_ro(self.index_db)
         try:
-            cursor = proj_con.execute(
-                f"SELECT id, type, ts, persona, agent_id, tool_name, content, data "
-                f"FROM events WHERE session_id = ? {type_filter} ORDER BY ts ASC",
-                (session_id,),
-            )
-            events = []
-            for row in cursor:
-                try:
-                    data = json.loads(row["data"]) if row["data"] else {}
-                except json.JSONDecodeError:
-                    data = {}
-                events.append({
-                    "event_id": row["id"],
-                    "type": row["type"],
-                    "ts": row["ts"],
-                    "persona": row["persona"],
-                    "agent_id": row["agent_id"],
-                    "tool_name": row["tool_name"],
-                    "content": row["content"],
-                    "data": data,
-                })
-            return {
-                "session_id": session_id,
-                "project_slug": project_slug,
-                "mode": mode,
-                "event_count": len(events),
-                "events": events,
-            }
+            where = []
+            args: list[Any] = []
+            if project:
+                where.append("ei.project_slug = ?" if q else "project_slug = ?")
+                args.append(project)
+            if session:
+                where.append("ei.session_id = ?" if q else "session_id = ?")
+                args.append(session)
+            if types:
+                col = "ei.type" if q else "type"
+                where.append(f"{col} IN ({','.join('?' * len(types))})")
+                args.extend(types)
+            where_sql = (" AND " + " AND ".join(where)) if where else ""
+
+            if q:
+                tokens = q.split()
+                fts_query = " ".join('"' + t.replace('"', '""') + '"' for t in tokens) if tokens else q
+                cursor = con.execute(
+                    f"SELECT ei.event_id, ei.project_slug, ei.session_id, ei.type, ei.ts, "
+                    f"ei.persona, ei.content_preview, ei.has_full_content "
+                    f"FROM events_index_fts fts JOIN events_index ei ON ei.event_id = fts.event_id "
+                    f"WHERE fts.events_index_fts MATCH ?{where_sql} "
+                    f"ORDER BY ei.{sort} {order} LIMIT ? OFFSET ?",
+                    (fts_query, *args, limit, offset),
+                )
+            else:
+                where_sql2 = ("WHERE " + " AND ".join(where)) if where else ""
+                cursor = con.execute(
+                    f"SELECT event_id, project_slug, session_id, type, ts, "
+                    f"persona, content_preview, has_full_content "
+                    f"FROM events_index {where_sql2} "
+                    f"ORDER BY {sort} {order} LIMIT ? OFFSET ?",
+                    (*args, limit, offset),
+                )
+            return [self._prompt_row(row) for row in cursor]
         finally:
-            proj_con.close()
+            con.close()
 
     def projects(self, params: dict[str, Any]) -> list[dict[str, Any]]:
         """List all project slugs with metadata.

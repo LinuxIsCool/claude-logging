@@ -5,35 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>claude-logging — Legion observability</title>
 <link rel="icon" href='data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="%231e1e2e"/><text x="50%25" y="62%25" text-anchor="middle" font-size="20" fill="%23cba6f7" font-family="monospace">%E2%97%89</text></svg>' />
-<script src="https://cdn.tailwindcss.com"></script>
-<script>
-  tailwind.config = {
-    theme: {
-      extend: {
-        fontFamily: {
-          'pixel': ['"Press Start 2P"', 'monospace'],
-          'mono': ['"JetBrains Mono"', 'monospace'],
-        },
-        colors: {
-          // Catppuccin Mocha
-          base: '#1e1e2e', mantle: '#181825', crust: '#11111b',
-          surface0: '#313244', surface1: '#45475a', surface2: '#585b70',
-          text: '#cdd6f4', subtext0: '#a6adc8', subtext1: '#bac2de',
-          overlay0: '#6c7086', overlay1: '#7f849c', overlay2: '#9399b2',
-          rosewater: '#f5e0dc', flamingo: '#f2cdcd', pink: '#f5c2e7',
-          mauve: '#cba6f7', red: '#f38ba8', maroon: '#eba0ac',
-          peach: '#fab387', yellow: '#f9e2af', green: '#a6e3a1',
-          teal: '#94e2d5', sky: '#89dceb', sapphire: '#74c7ec',
-          blue: '#89b4fa', lavender: '#b4befe',
-        },
-        animation: {
-          'fade-in': 'fadeIn 0.2s ease-out',
-          'pulse-glow': 'pulseGlow 0.8s ease-out',
-        },
-      },
-    },
-  };
-</script>
+<!-- Precompiled Tailwind (task-4114): replaces the Play CDN (cdn.tailwindcss.com),
+     which compiled utilities in-browser on every load (~2s) and required network.
+     Rebuild: web/.twbuild/ → `npx tailwindcss@3 -c .twbuild/tailwind.config.js -i .twbuild/input.css -o static/tailwind.css --minify` -->
+<link rel="stylesheet" href="static/tailwind.css" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Press+Start+2P&display=swap" rel="stylesheet" />
@@ -42,6 +17,8 @@
   @keyframes pulseGlow { 0% { box-shadow: 0 0 0 1px rgba(203,166,247,0.8); } 100% { box-shadow: 0 0 0 1px transparent; } }
   body { font-family: 'JetBrains Mono', monospace; background: #1e1e2e; color: #cdd6f4; }
   .font-pixel { font-family: 'Press Start 2P', monospace; letter-spacing: 0.04em; }
+  /* Line-clamp fallback (works regardless of Tailwind build coverage) */
+  .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   /* Persona color rails (3-px left border on cards) */
   .persona-rail { width: 3px; flex-shrink: 0; }
   .persona-matt { background: #cba6f7; }
@@ -75,8 +52,50 @@
     content: ''; position: absolute; bottom: 0; left: 0; right: 0;
     height: 1.5rem; background: linear-gradient(transparent, #181825); pointer-events: none;
   }
-  .preview.expanded { max-height: none; }
+  .preview.expanded { max-height: 28rem; overflow-y: auto; }
   .preview.expanded::after { display: none; }
+  /* Search keyword highlight (ported from claude-plugins3 v3 search-context) */
+  mark { background: rgba(249,226,175,0.28); color: #f9e2af; border-radius: 2px; padding: 0 1px; }
+
+  /* ── Epic cards (design ported from legion storybook UniversalCard) ── */
+  .ecard {
+    --accent: #cba6f7;
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+    border-left: 3px solid var(--accent);
+    border-radius: 12px; background: #181825; overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+    transition: transform 0.12s, box-shadow 0.12s; cursor: pointer;
+  }
+  .ecard:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(0,0,0,0.5), 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent); }
+  .ecard.selected { box-shadow: 0 0 0 2px var(--accent), 0 2px 8px rgba(0,0,0,0.4); }
+  .ecard-head {
+    display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
+    padding: 0.5rem 0.75rem;
+    background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 16%, transparent), color-mix(in srgb, var(--accent) 5%, transparent));
+    border-bottom: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+  .ecard-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+  /* Prominent timestamp */
+  .ecard-ts { margin-left: auto; font-size: 0.95rem; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+  .ecard-ts .ago { font-size: 0.7rem; font-weight: 400; color: #7f849c; margin-left: 0.4rem; }
+  .ecard-title { padding: 0.6rem 0.75rem 0.1rem; font-size: 1rem; font-weight: 700; color: #f1f5f9; line-height: 1.3; }
+  /* Full content — no truncation; scroll within a bounded viewport */
+  .ecard-body {
+    padding: 0.4rem 0.75rem 0.6rem; font-size: 0.85rem; color: #cdd6f4;
+    line-height: 1.55; white-space: pre-wrap; word-break: break-word;
+    font-family: 'JetBrains Mono', monospace;
+    max-height: 26rem; overflow-y: auto;
+  }
+  .ecard-foot {
+    display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
+    padding: 0.45rem 0.75rem; border-top: 1px solid #313244; font-size: 0.7rem; color: #7f849c;
+  }
+  .chip { display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.1rem 0.5rem; border-radius: 9999px; background: #313244; color: #a6adc8; font-size: 0.7rem; }
+  .chip-accent { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
+  /* Toolbar (per-view search/filter/sort) */
+  .toolbar { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.75rem; padding: 0.6rem; border: 1px solid #313244; border-radius: 10px; background: #181825; }
+  .sortbtn { font-size: 0.75rem; padding: 0.3rem 0.6rem; border-radius: 6px; border: 1px solid #313244; background: #1e1e2e; color: #a6adc8; cursor: pointer; }
+  .sortbtn.active { border-color: color-mix(in srgb, #cba6f7 60%, transparent); background: rgba(203,166,247,0.12); color: #cba6f7; }
   /* Inputs */
   input.txt, select.txt {
     background: #1e1e2e; border: 1px solid #313244; color: #cdd6f4;
@@ -137,17 +156,14 @@
   <aside id="left-nav" class="lg:col-span-2 min-w-0">
     <div class="sticky top-[80px] space-y-3">
       <nav id="view-nav" class="rounded-lg border border-surface0 bg-mantle p-1.5 space-y-0.5">
+        <div class="view-nav-item" data-tab="sessions">
+          <span class="glyph">▤</span><span>Sessions</span>
+        </div>
         <div class="view-nav-item" data-tab="prompts">
           <span class="glyph">▸</span><span>Prompts</span>
         </div>
-        <div class="view-nav-item" data-tab="transcript">
-          <span class="glyph">≡</span><span>Transcript</span>
-        </div>
-        <div class="view-nav-item" data-tab="search">
-          <span class="glyph">⌕</span><span>Search</span>
-        </div>
-        <div class="view-nav-item" data-tab="settings">
-          <span class="glyph">⚙</span><span>Settings</span>
+        <div class="view-nav-item" data-tab="stats">
+          <span class="glyph">▦</span><span>Stats</span>
         </div>
       </nav>
 
@@ -160,31 +176,22 @@
         <div class="flex justify-between"><span class="text-overlay0">sessions</span><span id="stat-sessions" class="text-text">·</span></div>
       </div>
 
-      <!-- Persona filter -->
-      <div class="rounded-lg border border-surface0 bg-mantle p-3 text-xs space-y-1">
-        <div class="font-pixel text-mauve mb-2 text-[0.65rem]">PERSONA</div>
-        <div id="persona-filter" class="space-y-1">
-          <div class="persona-item flex items-center gap-2 px-1 py-0.5 rounded cursor-pointer hover:bg-surface0" data-persona="">
-            <span class="persona-rail h-3"></span><span class="text-subtext0">all</span>
-          </div>
-        </div>
-      </div>
     </div>
   </aside>
 
-  <!-- Main view -->
-  <section id="main-view" class="col-span-12 lg:col-span-7 min-w-0">
+  <!-- Main view (list) -->
+  <section id="main-view" class="col-span-12 lg:col-span-5 min-w-0">
     <div id="view-root" class="animate-fade-in">
       <div class="empty">Loading…</div>
     </div>
   </section>
 
-  <!-- Right detail panel -->
-  <aside id="detail-panel" class="lg:col-span-3 min-w-0 hidden lg:block">
-    <div class="sticky top-[80px] space-y-3">
-      <div id="detail-slot" class="rounded-lg border border-surface0 bg-mantle p-4 text-sm text-subtext0">
+  <!-- Right detail panel — transcript opens here -->
+  <aside id="detail-panel" class="lg:col-span-5 min-w-0 hidden lg:block">
+    <div class="sticky top-[80px]">
+      <div id="detail-slot" class="rounded-lg border border-surface0 bg-mantle p-3 text-sm text-subtext0" style="max-height: calc(100vh - 100px); overflow-y: auto;">
         <div class="font-pixel text-mauve mb-2 text-[0.65rem]">DETAIL</div>
-        <div class="text-overlay0 text-xs">No prompt selected. Click a card to see its session transcript here.</div>
+        <div class="text-overlay0 text-xs">No session selected. Click a session or prompt card to read its transcript here.</div>
       </div>
     </div>
   </aside>
@@ -208,9 +215,13 @@
 const PERSONAS = ['matt', 'shawn', 'darren', 'eve', 'legion'];
 
 const state = {
-  tab: 'prompts',
+  tab: 'sessions',
   projectSlug: '',
-  personaFilter: '',
+  highlightQuery: '',
+  sessionsSort: 'ended_at', sessionsOrder: 'desc', sessionsQ: '',
+  promptsSort: 'ts', promptsOrder: 'desc', promptsQ: '',
+  txQ: '', txTypeFilter: '', txOrder: 'asc', txScopeAll: false,
+  sessions: [],
   prompts: [],
   searchResults: null,
   stats: null,
@@ -266,6 +277,79 @@ function personaCls(persona) {
   return PERSONAS.includes(persona) ? persona : '';
 }
 
+// Prominent clock (HH:MM, local) for the big timestamp on epic cards.
+function fmtClock(iso) {
+  if (!iso) return '';
+  try { const d = new Date(iso); if (isNaN(d)) return '';
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } catch { return ''; }
+}
+// Full local datetime for card footers.
+function fmtFullDate(iso) {
+  if (!iso) return '';
+  try { const d = new Date(iso); if (isNaN(d)) return iso;
+    return d.toLocaleString([], { year:'numeric', month:'short', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit' });
+  } catch { return iso; }
+}
+
+// Event-type glyphs — fast visual scan of a transcript (Phase 2).
+const EVENT_GLYPH = {
+  UserPromptSubmit: '💬', AssistantResponse: '🤖',
+  PreToolUse: '🔧', PostToolUse: '✅', PostToolUseFailure: '❌',
+  SubagentStart: '🧵', SubagentStop: '🧶', Stop: '⏹️', StopFailure: '🛑',
+  SessionStart: '🚀', SessionEnd: '🏁', Notification: '🔔',
+  PermissionRequest: '🔐', InstructionsLoaded: '📋', CwdChanged: '📂',
+  ConfigChange: '⚙️', TaskCreated: '📌', TaskCompleted: '☑️',
+  PreCompact: '🗜️', PostCompact: '📦',
+};
+function eventGlyph(type) { return EVENT_GLYPH[type] || '•'; }
+
+// Per-session colour — stable hash of session_id → Catppuccin accent palette.
+// Sessions are colour-coded; prompts inherit their session's colour.
+const SESSION_PALETTE = [
+  '#cba6f7','#89b4fa','#94e2d5','#f5c2e7','#fab387','#a6e3a1','#89dceb',
+  '#b4befe','#f38ba8','#f9e2af','#74c7ec','#eba0ac','#f2cdcd','#f5e0dc',
+];
+function sessionColor(id) {
+  if (!id) return '#6c7086';
+  let h = 0;
+  for (let i = 0; i < id.length; i++) { h = ((h << 5) - h + id.charCodeAt(i)) | 0; }
+  return SESSION_PALETTE[Math.abs(h) % SESSION_PALETTE.length];
+}
+
+// Keyword highlighting (ported from claude-plugins3 v3: search-context.tsx +
+// highlighted-text.tsx). Escape first, then wrap query terms in <mark> on the
+// already-escaped string so it's injection-safe inside innerHTML templates.
+function regexEscape(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+function highlightEscaped(text, query) {
+  const esc = escapeHtml(text || '');
+  const q = (query || '').trim();
+  if (!q) return esc;
+  // Limit to 20 terms (DoS guard, per v3); escape for HTML then for regex so
+  // patterns line up with the escaped haystack.
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean).slice(0, 20)
+    .map(w => regexEscape(escapeHtml(w)));
+  if (!words.length) return esc;
+  try {
+    return esc.replace(new RegExp('(' + words.join('|') + ')', 'gi'), '<mark>$1</mark>');
+  } catch { return esc; }
+}
+
+// Compact duration between two ISO timestamps, e.g. "12m", "3h 5m", "2d".
+function fmtDuration(startIso, endIso) {
+  if (!startIso || !endIso) return '';
+  try {
+    const secs = Math.max(0, (new Date(endIso) - new Date(startIso)) / 1000);
+    if (secs < 60) return Math.round(secs) + 's';
+    if (secs < 3600) return Math.round(secs / 60) + 'm';
+    if (secs < 86400) {
+      const h = Math.floor(secs / 3600), m = Math.round((secs % 3600) / 60);
+      return m ? `${h}h ${m}m` : `${h}h`;
+    }
+    return Math.round(secs / 86400) + 'd';
+  } catch { return ''; }
+}
+
 function escapeHtml(s) {
   if (s == null) return '';
   return String(s)
@@ -289,39 +373,42 @@ function shortenSlug(slug) {
 
 // ── Cards ──────────────────────────────────────────────────────────
 
+// Prompt card — coloured by its session (sessionColor), prominent timestamp,
+// full content (no truncation; scrolls inside .ecard-body). Click → open the
+// session transcript.
 function renderPromptCard(p) {
-  const persona = p.persona || 'claude';
-  const personaCls_ = `persona-${personaCls(persona) || 'claude'}`;
-  const badgeCls = personaCls(persona);
+  const accent = sessionColor(p.session_id);
   return `
-    <div class="card flex animate-fade-in cursor-pointer mb-2" data-event-id="${escapeHtml(p.event_id)}" data-session="${escapeHtml(p.session_id || '')}">
-      <div class="persona-rail ${personaCls_}"></div>
-      <div class="flex-1 p-3 min-w-0">
-        <div class="flex items-center gap-2 text-xs mb-2 flex-wrap">
-          <span class="badge ${badgeCls}">${escapeHtml(persona)}</span>
-          <span class="text-overlay1 truncate" title="${escapeHtml(p.project_slug)}">${escapeHtml(shortenSlug(p.project_slug))}</span>
-          <span class="text-overlay0 ml-auto" data-age data-iso="${escapeHtml(p.ts)}">${fmtTime(p.ts)}</span>
-        </div>
-        <div class="preview text-sm">${escapeHtml(p.preview || '')}</div>
+    <div class="ecard animate-fade-in mb-3" style="--accent:${accent}" data-event-id="${escapeHtml(p.event_id)}" data-session="${escapeHtml(p.session_id || '')}">
+      <div class="ecard-head">
+        <span class="ecard-dot"></span>
+        <span class="badge">💬 prompt</span>
+        <span class="chip" title="${escapeHtml(p.project_slug)}">${escapeHtml(shortenSlug(p.project_slug))}</span>
+        <span class="ecard-ts">${fmtClock(p.ts)}<span class="ago" data-age data-iso="${escapeHtml(p.ts)}">${fmtTime(p.ts)}</span></span>
+      </div>
+      <div class="ecard-body">${highlightEscaped(p.preview || '', state.highlightQuery)}</div>
+      <div class="ecard-foot">
+        <span class="chip chip-accent" title="session">⛓ ${escapeHtml((p.session_id || '').slice(0,8))}</span>
+        <span>${fmtFullDate(p.ts)}</span>
       </div>
     </div>
   `;
 }
 
-function renderEventRow(e) {
-  const isPrompt = e.type === 'UserPromptSubmit';
-  const isResponse = e.type === 'AssistantResponse';
-  const headerColor = isPrompt ? 'text-mauve' : isResponse ? 'text-green' : 'text-sky';
+function renderEventRow(e, accent) {
   const content = e.content || (e.data?.response) || (e.data?.prompt) || '';
+  const a = accent || sessionColor(e.session_id || state.currentSession);
   return `
-    <div class="card p-3 animate-fade-in mb-2">
-      <div class="flex items-center gap-2 text-xs mb-2 flex-wrap">
-        <span class="badge ${headerColor}">${escapeHtml(e.type)}</span>
-        ${e.persona ? `<span class="badge ${personaCls(e.persona)}">${escapeHtml(e.persona)}</span>` : ''}
-        ${e.tool_name ? `<span class="badge badge-tool">${escapeHtml(e.tool_name)}</span>` : ''}
-        <span class="text-overlay0 ml-auto" data-age data-iso="${escapeHtml(e.ts)}">${fmtTime(e.ts)}</span>
+    <div class="ecard animate-fade-in mb-3" style="--accent:${a}; cursor:default">
+      <div class="ecard-head">
+        <span class="ecard-dot"></span>
+        <span class="badge">${eventGlyph(e.type)} ${escapeHtml(e.type)}</span>
+        ${e.tool_name ? `<span class="chip">🔧 ${escapeHtml(e.tool_name)}</span>` : ''}
+        ${e.project_slug ? `<span class="chip" title="${escapeHtml(e.project_slug)}">${escapeHtml(shortenSlug(e.project_slug))}</span>` : ''}
+        <span class="ecard-ts">${fmtClock(e.ts)}<span class="ago" data-age data-iso="${escapeHtml(e.ts)}">${fmtTime(e.ts)}</span></span>
       </div>
-      ${content ? `<div class="preview text-sm">${escapeHtml(content)}</div>` : ''}
+      ${content ? `<div class="ecard-body">${highlightEscaped(content, state.highlightQuery || state.txQ)}</div>` : ''}
+      <div class="ecard-foot"><span>${fmtFullDate(e.ts)}</span></div>
     </div>
   `;
 }
@@ -338,49 +425,65 @@ function renderDetail() {
     return;
   }
   const p = state.currentPromptDetail;
-  const persona = p.persona || 'claude';
+  const accent = sessionColor(p.session_id);
   slot.innerHTML = `
-    <div class="font-pixel text-mauve mb-3 text-[0.65rem]">DETAIL</div>
+    <div class="font-pixel mb-3 text-[0.65rem]" style="color:${accent}">DETAIL</div>
     <div class="space-y-2 text-xs">
-      <div><span class="text-overlay0">persona:</span> <span class="badge ${personaCls(persona)}">${escapeHtml(persona)}</span></div>
       <div><span class="text-overlay0">project:</span> <span class="text-subtext1">${escapeHtml(shortenSlug(p.project_slug))}</span></div>
-      <div><span class="text-overlay0">session:</span> <code class="text-mauve">${escapeHtml((p.session_id || '').slice(0, 8))}…</code></div>
-      <div><span class="text-overlay0">time:</span> <span class="text-subtext1">${escapeHtml(p.ts)}</span></div>
+      <div><span class="text-overlay0">session:</span> <code style="color:${accent}">${escapeHtml((p.session_id || '').slice(0, 8))}…</code></div>
+      <div><span class="text-overlay0">time:</span> <span class="text-subtext1">${escapeHtml(fmtFullDate(p.ts))}</span></div>
       ${p.tool_name ? `<div><span class="text-overlay0">tool:</span> <span class="badge badge-tool">${escapeHtml(p.tool_name)}</span></div>` : ''}
       <hr class="border-surface0 my-2" />
       <button class="view-nav-item w-full text-center" data-action="open-transcript">view full transcript →</button>
     </div>
   `;
   slot.querySelector('[data-action="open-transcript"]')?.addEventListener('click', () => {
-    state.currentSession = p.session_id;
-    navigate('transcript');
+    openTranscriptPanel(p.session_id);
   });
 }
 
 // ── Tab renderers ──────────────────────────────────────────────────
 
+// Reusable sort-control builder: [{key,label}], current sort/order, data-attr group.
+function sortControls(cols, curSort, curOrder, group) {
+  return cols.map(c => {
+    const active = c.key === curSort;
+    const arrow = active ? (curOrder === 'asc' ? '↑' : '↓') : '';
+    return `<button class="sortbtn ${active ? 'active' : ''}" data-sort-group="${group}" data-sort="${c.key}">${escapeHtml(c.label)} ${arrow}</button>`;
+  }).join('');
+}
+
 async function renderPromptsTab() {
   const main = document.getElementById('view-root');
   main.innerHTML = `
-    <div class="mb-3 flex items-center justify-between gap-2 flex-wrap">
-      <div class="text-xs text-subtext0">recent prompts${state.projectSlug ? ` in <span class="text-mauve">${escapeHtml(shortenSlug(state.projectSlug))}</span>` : ' · all projects'}${state.personaFilter ? ` · <span class="text-mauve">${escapeHtml(state.personaFilter)}</span>` : ''}</div>
-      <input id="quick-q" type="text" placeholder="quick filter…" class="txt text-xs" />
+    <div class="toolbar">
+      <input id="prompts-q" type="text" placeholder="🔍 search prompts (FTS5)…" class="txt text-xs flex-1 min-w-[220px]" value="${escapeHtml(state.promptsQ)}" autocomplete="off" />
+      <span class="text-overlay0 text-xs">sort:</span>
+      ${sortControls([{key:'ts',label:'time'},{key:'project_slug',label:'project'},{key:'session_id',label:'session'}], state.promptsSort, state.promptsOrder, 'prompts')}
     </div>
     <div id="prompts-list" class="empty">Loading…</div>
   `;
-  document.getElementById('quick-q').addEventListener('input', (e) => {
+  const qEl = document.getElementById('prompts-q');
+  qEl.addEventListener('input', (e) => {
     clearTimeout(window._qDebounce);
-    window._qDebounce = setTimeout(() => loadPrompts(e.target.value), 250);
+    window._qDebounce = setTimeout(() => { state.promptsQ = e.target.value; loadPrompts(); }, 250);
   });
-  await loadPrompts('');
+  main.querySelectorAll('[data-sort-group="prompts"]').forEach(el => el.addEventListener('click', () => {
+    const k = el.dataset.sort;
+    if (state.promptsSort === k) state.promptsOrder = state.promptsOrder === 'asc' ? 'desc' : 'asc';
+    else { state.promptsSort = k; state.promptsOrder = 'desc'; }
+    renderPromptsTab();
+  }));
+  await loadPrompts();
 }
 
-async function loadPrompts(q) {
+async function loadPrompts() {
   const list = document.getElementById('prompts-list');
+  const q = state.promptsQ;
+  state.highlightQuery = q || '';
   try {
-    const params = { limit: 50 };
+    const params = { limit: 50, sort: state.promptsSort, order: state.promptsOrder };
     if (state.projectSlug) params.project_slug = state.projectSlug;
-    if (state.personaFilter) params.persona = state.personaFilter;
     if (q) params.q = q;
     const prompts = await api('/api/prompts', params);
     state.prompts = prompts;
@@ -395,118 +498,107 @@ async function loadPrompts(q) {
   }
 }
 
+// Click a prompt card → open its session transcript in the right detail panel.
 function wireCards(root) {
   root.querySelectorAll('[data-event-id]').forEach(el => {
     el.addEventListener('click', () => {
-      const eventId = el.dataset.eventId;
-      const prompt = (state.prompts || []).concat(state.searchResults?.results || []).find(p => p.event_id === eventId);
-      if (prompt) {
-        state.currentPromptDetail = prompt;
-        state.currentSession = prompt.session_id;
-        renderDetail();
-      }
-    });
-  });
-  root.querySelectorAll('.preview').forEach(el => {
-    el.addEventListener('click', (e) => {
-      e.stopPropagation();
-      el.classList.toggle('expanded');
+      const sid = el.dataset.session;
+      if (sid) openTranscriptPanel(sid);
     });
   });
 }
 
-async function renderTranscriptTab() {
-  const main = document.getElementById('view-root');
-  if (!state.currentSession) {
-    try {
-      const sessions = await api('/api/sessions', { limit: 1 });
-      if (sessions.length === 0) {
-        main.innerHTML = `<div class="empty">No sessions captured.</div>`;
-        return;
-      }
-      state.currentSession = sessions[0].session_id;
-    } catch (e) {
-      main.innerHTML = `<div class="empty text-red">Error: ${escapeHtml(e.message)}</div>`;
-      return;
-    }
-  }
-  main.innerHTML = `<div class="empty">Loading transcript…</div>`;
-  try {
-    const t = await api('/api/transcript', {
-      session: state.currentSession,
-      mode: state.transcriptMode,
-    });
-    if (t.error) {
-      main.innerHTML = `<div class="empty text-red">${escapeHtml(t.error)}</div>`;
-      return;
-    }
-    main.innerHTML = `
-      <div class="mb-3 flex items-center gap-3 text-xs flex-wrap">
-        <div class="text-subtext0">
-          Session <code class="text-mauve">${escapeHtml(t.session_id.slice(0, 8))}…</code>
-          in <span class="text-sky">${escapeHtml(shortenSlug(t.project_slug))}</span>
-          · ${t.event_count} event${t.event_count === 1 ? '' : 's'}
-        </div>
-        <div class="ml-auto flex gap-1">
-          <button class="view-nav-item ${state.transcriptMode==='clean'?'active':''}" data-mode="clean">Clean</button>
-          <button class="view-nav-item ${state.transcriptMode==='full'?'active':''}" data-mode="full">Full</button>
-        </div>
-      </div>
-      <div>${t.events.map(renderEventRow).join('\n')}</div>
-    `;
-    main.querySelectorAll('[data-mode]').forEach(el => {
-      el.addEventListener('click', () => {
-        state.transcriptMode = el.dataset.mode;
-        renderTranscriptTab();
-      });
-    });
-    main.querySelectorAll('.preview').forEach(el => {
-      el.addEventListener('click', () => el.classList.toggle('expanded'));
-    });
-  } catch (e) {
-    main.innerHTML = `<div class="empty text-red">Error: ${escapeHtml(e.message)}</div>`;
-  }
+// Event-type filter <select> options (from glyph map).
+function typeOptions(selected) {
+  const opts = ['<option value="">all types</option>']
+    .concat(Object.keys(EVENT_GLYPH).map(t =>
+      `<option value="${t}" ${t === selected ? 'selected' : ''}>${eventGlyph(t)} ${t}</option>`));
+  return opts.join('');
 }
 
-async function renderSearchTab() {
-  const main = document.getElementById('view-root');
-  main.innerHTML = `
-    <form id="search-form" class="mb-4 flex gap-2 items-center flex-wrap">
-      <input type="text" name="q" placeholder="Search prompts + events…" class="txt flex-1 min-w-[260px]" autocomplete="off" autofocus />
-      <select name="mode" class="txt">
-        <option value="prompts">Prompts (FTS5)</option>
-        <option value="events">All events (FTS5)</option>
-      </select>
-      <button type="submit" class="view-nav-item active">Go</button>
-    </form>
-    <div class="text-xs text-overlay0 mb-3">FTS5 supports: <code>foo AND bar</code>, <code>"exact phrase"</code>, <code>fo*</code>. Hyphens auto-quoted.</div>
-    <div id="search-results"></div>
+// Open a session's transcript in the RIGHT detail panel (list stays in main).
+function openTranscriptPanel(sessionId) {
+  if (sessionId) state.currentSession = sessionId;
+  // mark the selected card
+  document.querySelectorAll('.ecard.selected').forEach(el => el.classList.remove('selected'));
+  document.querySelectorAll(`[data-session-open="${sessionId}"], [data-session="${sessionId}"]`).forEach(el => el.classList.add('selected'));
+  renderTranscriptPanel();
+}
+
+function resetDetailPanel() {
+  const slot = document.getElementById('detail-slot');
+  if (slot) slot.innerHTML = `
+    <div class="font-pixel text-mauve mb-2 text-[0.65rem]">DETAIL</div>
+    <div class="text-overlay0 text-xs">No session selected. Click a session or prompt card to read its transcript here.</div>`;
+}
+
+function renderTranscriptPanel() {
+  const slot = document.getElementById('detail-slot');
+  if (!slot) return;
+  const accent = sessionColor(state.currentSession);
+  state.highlightQuery = state.txQ || '';
+  slot.innerHTML = `
+    <div class="flex items-center gap-2 mb-2 text-xs">
+      <span class="ecard-dot" style="--accent:${accent}; background:${accent}"></span>
+      <span class="text-subtext0">${state.txScopeAll ? 'all transcripts' : 'session ' + escapeHtml((state.currentSession||'').slice(0,8))}</span>
+      <button class="sortbtn ml-auto" data-action="tx-close">✕ close</button>
+    </div>
+    <div class="toolbar" style="margin-bottom:0.5rem">
+      <input id="tx-q" type="text" placeholder="🔍 search events…" class="txt text-xs flex-1 min-w-[140px]" value="${escapeHtml(state.txQ)}" autocomplete="off" />
+      <select id="tx-type" class="txt text-xs">${typeOptions(state.txTypeFilter)}</select>
+      <button class="sortbtn ${state.txOrder==='asc'?'active':''}" data-action="tx-order">time ${state.txOrder==='asc'?'↑':'↓'}</button>
+      <button class="sortbtn ${state.txScopeAll?'active':''}" data-action="tx-scope">${state.txScopeAll ? '◉ all' : '○ this'}</button>
+      ${state.txScopeAll ? '' : `<button class="sortbtn ${state.transcriptMode==='clean'?'active':''}" data-mode="clean">clean</button><button class="sortbtn ${state.transcriptMode==='full'?'active':''}" data-mode="full">full</button>`}
+    </div>
+    <div id="tx-list" class="empty">Loading…</div>
   `;
-  const form = document.getElementById('search-form');
-  const resultsEl = document.getElementById('search-results');
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const fd = new FormData(form);
-    const q = fd.get('q');
-    const mode = fd.get('mode');
-    if (!q) { resultsEl.innerHTML = ''; return; }
-    resultsEl.innerHTML = `<div class="empty">Searching…</div>`;
-    try {
-      const r = await api('/api/search', { q, mode });
-      state.searchResults = r;
-      if (r.results.length === 0) {
-        resultsEl.innerHTML = `<div class="empty">No matches for "${escapeHtml(q)}".</div>`;
-        return;
-      }
-      resultsEl.innerHTML = `
-        <div class="text-xs text-subtext0 mb-2">${r.results.length} match${r.results.length === 1 ? '' : 'es'} for "${escapeHtml(r.q)}" (${escapeHtml(r.mode)} mode)</div>
-        ${r.results.map(renderPromptCard).join('\n')}
-      `;
-      wireCards(resultsEl);
-    } catch (e) {
-      resultsEl.innerHTML = `<div class="empty text-red">Error: ${escapeHtml(e.message)}</div>`;
-    }
+  slot.querySelector('#tx-q').addEventListener('input', (e) => {
+    clearTimeout(window._txDebounce);
+    window._txDebounce = setTimeout(() => { state.txQ = e.target.value; loadTranscript(); }, 250);
   });
+  slot.querySelector('#tx-type').addEventListener('change', (e) => { state.txTypeFilter = e.target.value; loadTranscript(); });
+  slot.querySelector('[data-action="tx-close"]').addEventListener('click', () => {
+    document.querySelectorAll('.ecard.selected').forEach(el => el.classList.remove('selected'));
+    resetDetailPanel();
+  });
+  slot.querySelector('[data-action="tx-order"]').addEventListener('click', () => { state.txOrder = state.txOrder==='asc'?'desc':'asc'; loadTranscript(); });
+  slot.querySelector('[data-action="tx-scope"]').addEventListener('click', () => { state.txScopeAll = !state.txScopeAll; renderTranscriptPanel(); });
+  slot.querySelectorAll('[data-mode]').forEach(el => el.addEventListener('click', () => { state.transcriptMode = el.dataset.mode; loadTranscript(); }));
+  loadTranscript();
+}
+
+async function loadTranscript() {
+  const list = document.getElementById('tx-list');
+  if (!list) return;
+  const accent = sessionColor(state.currentSession);
+  try {
+    let events, header;
+    if (state.txScopeAll) {
+      // Cross-transcript: search/filter/sort ALL events corpus-wide.
+      const params = { limit: 200, sort: 'ts', order: state.txOrder };
+      if (state.txQ) params.q = state.txQ;
+      if (state.txTypeFilter) params.types = state.txTypeFilter;
+      if (state.projectSlug) params.project_slug = state.projectSlug;
+      const rows = await api('/api/events', params);
+      events = rows.map(r => ({ event_id: r.event_id, type: r.type, ts: r.ts, content: r.preview, session_id: r.session_id, project_slug: r.project_slug }));
+      header = `${events.length} event${events.length===1?'':'s'} across all transcripts${state.txQ?` matching "${escapeHtml(state.txQ)}"`:''}`;
+    } else {
+      const t = await api('/api/transcript', { session: state.currentSession, mode: state.transcriptMode });
+      if (t.error) { list.innerHTML = `<div class="empty text-red">${escapeHtml(t.error)}</div>`; return; }
+      events = t.events;
+      // client-side filter (text + type) within the session
+      if (state.txTypeFilter) events = events.filter(e => e.type === state.txTypeFilter);
+      if (state.txQ) { const q = state.txQ.toLowerCase(); events = events.filter(e => (e.content||'').toLowerCase().includes(q)); }
+      if (state.txOrder === 'desc') events = events.slice().reverse();
+      const proj = (t.project_slugs && t.project_slugs.length > 1) ? `${t.project_slugs.length} projects` : shortenSlug(t.project_slug);
+      header = `Session <code style="color:${accent}">${escapeHtml((t.session_id||'').slice(0,8))}…</code> in <span class="text-sky">${escapeHtml(proj)}</span> · ${events.length}/${t.event_count} event${t.event_count===1?'':'s'}`;
+    }
+    if (!events.length) { list.innerHTML = `<div class="empty">No events match.</div>`; return; }
+    list.innerHTML = `<div class="text-xs text-subtext0 mb-3">${header}</div>` +
+      events.map(e => renderEventRow(e, state.txScopeAll ? sessionColor(e.session_id) : accent)).join('\n');
+  } catch (e) {
+    list.innerHTML = `<div class="empty text-red">Error: ${escapeHtml(e.message)}</div>`;
+  }
 }
 
 async function renderSettingsTab() {
@@ -556,7 +648,7 @@ async function renderSettingsTab() {
             <div>Cross-project index: <span class="text-text">~/.claude/local/logging/_index/index.db</span></div>
             <div>Capture pipeline: 25 hook event types · WAL journal · JSONL source-of-truth · SQLite rebuildable</div>
             <div>Cluster role: 9th satellite of claude-webui (Observability cluster)</div>
-            <div class="pt-2 text-overlay0 italic">Phase 2 ships 4 tabs. Phases 4-9 add Queue (TTS YouTube-style), Live (SSE), Slice (10 charts), Annotations, Pastes, mobile-responsive layout.</div>
+            <div class="pt-2 text-overlay0 italic">Nav: Sessions · Prompts · Stats. Transcripts open as detail views from a session. Search/filter/sort on every view; events searchable within a transcript and across all transcripts.</div>
           </div>
         </div>
       </div>
@@ -566,22 +658,102 @@ async function renderSettingsTab() {
   }
 }
 
+// ── Sessions browser ───────────────────────────────────────────────
+
+// Derive a clean title from the first-prompt content_preview (which may
+// carry hook boilerplate, leading dashes, or command caveats).
+function sessionTitle(s) {
+  let t = (s.title || '').trim();
+  t = t.replace(/^-+\s*/, '').trim().replace(/\s+/g, ' ');
+  if (!t) return `session ${(s.session_id || '').slice(0, 8)}`;
+  return t;  // no truncation — full title
+}
+
+function renderSessionCard(s) {
+  const title = sessionTitle(s);
+  const dur = fmtDuration(s.started_at, s.ended_at);
+  const accent = sessionColor(s.session_id);
+  return `
+    <div class="ecard animate-fade-in mb-3" style="--accent:${accent}" data-session-open="${escapeHtml(s.session_id || '')}">
+      <div class="ecard-head">
+        <span class="ecard-dot"></span>
+        <span class="chip" title="${escapeHtml(s.project_slug || '')}">${escapeHtml(shortenSlug(s.project_slug))}</span>
+        <span class="ecard-ts">${fmtClock(s.ended_at)}<span class="ago" data-age data-iso="${escapeHtml(s.ended_at)}">${fmtTime(s.ended_at)}</span></span>
+      </div>
+      <div class="ecard-title">${highlightEscaped(title, state.sessionsQ)}</div>
+      <div class="ecard-foot">
+        <span class="chip chip-accent">⛓ ${escapeHtml((s.session_id || '').slice(0,8))}</span>
+        <span title="prompts">💬 ${s.prompt_count || 0}</span>
+        <span title="events">▦ ${(s.event_count || 0).toLocaleString()}</span>
+        ${dur ? `<span title="duration">⏱ ${dur}</span>` : ''}
+        <span class="ml-auto">${fmtFullDate(s.ended_at)}</span>
+      </div>
+    </div>
+  `;
+}
+
+async function renderSessionsTab() {
+  const main = document.getElementById('view-root');
+  main.innerHTML = `
+    <div class="toolbar">
+      <input id="sessions-q" type="text" placeholder="🔍 filter sessions by title / id…" class="txt text-xs flex-1 min-w-[220px]" value="${escapeHtml(state.sessionsQ)}" autocomplete="off" />
+      <span class="text-overlay0 text-xs">sort:</span>
+      ${sortControls([{key:'ended_at',label:'time'},{key:'event_count',label:'events'},{key:'prompt_count',label:'prompts'},{key:'started_at',label:'started'}], state.sessionsSort, state.sessionsOrder, 'sessions')}
+    </div>
+    <div id="sessions-list" class="empty">Loading…</div>
+  `;
+  document.getElementById('sessions-q').addEventListener('input', (e) => {
+    clearTimeout(window._sDebounce);
+    window._sDebounce = setTimeout(() => { state.sessionsQ = e.target.value; loadSessions(); }, 200);
+  });
+  main.querySelectorAll('[data-sort-group="sessions"]').forEach(el => el.addEventListener('click', () => {
+    const k = el.dataset.sort;
+    if (state.sessionsSort === k) state.sessionsOrder = state.sessionsOrder === 'asc' ? 'desc' : 'asc';
+    else { state.sessionsSort = k; state.sessionsOrder = 'desc'; }
+    renderSessionsTab();
+  }));
+  await loadSessions();
+}
+
+async function loadSessions() {
+  const list = document.getElementById('sessions-list');
+  state.highlightQuery = state.sessionsQ || '';
+  try {
+    // Server sorts; load a wider set so the client-side title/id filter is useful.
+    const params = { limit: state.sessionsQ ? 300 : 50, sort: state.sessionsSort, order: state.sessionsOrder };
+    if (state.projectSlug) params.project_slug = state.projectSlug;
+    let sessions = await api('/api/sessions', params);
+    if (state.sessionsQ) {
+      const q = state.sessionsQ.toLowerCase();
+      sessions = sessions.filter(s => (sessionTitle(s)).toLowerCase().includes(q) || (s.session_id||'').toLowerCase().includes(q));
+    }
+    state.sessions = sessions;
+    if (!sessions.length) { list.innerHTML = `<div class="empty">No sessions found.</div>`; return; }
+    list.innerHTML = sessions.map(renderSessionCard).join('\n');
+    list.querySelectorAll('[data-session-open]').forEach(el => el.addEventListener('click', () => {
+      openTranscriptPanel(el.dataset.sessionOpen);
+    }));
+  } catch (e) {
+    list.innerHTML = `<div class="empty text-red">Error: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
 // ── Navigation ─────────────────────────────────────────────────────
 
 const tabRenderers = {
+  sessions: renderSessionsTab,
   prompts: renderPromptsTab,
-  transcript: renderTranscriptTab,
-  search: renderSearchTab,
-  settings: renderSettingsTab,
+  stats: renderSettingsTab,
 };
+// Transcript is NOT a tab — it opens in the right detail panel via openTranscriptPanel().
 
 function navigate(tab) {
-  if (!tabRenderers[tab]) tab = 'prompts';
+  if (!tabRenderers[tab]) tab = 'sessions';
   state.tab = tab;
   document.querySelectorAll('.view-nav-item[data-tab]').forEach(el => {
     el.classList.toggle('active', el.dataset.tab === tab);
   });
-  const newHash = '#' + tab + (tab === 'transcript' && state.currentSession ? '?session=' + state.currentSession : '');
+  const newHash = '#' + tab;
   if (window.location.hash !== newHash) window.location.hash = newHash;
   tabRenderers[tab]();
   // Close mobile sidebar on nav
@@ -591,13 +763,19 @@ function navigate(tab) {
 
 function parseHash() {
   const hash = window.location.hash.replace(/^#/, '');
-  if (!hash) return 'prompts';
+  if (!hash) return 'sessions';
   const [tab, query] = hash.split('?');
   if (query) {
     const qp = new URLSearchParams(query);
     if (qp.has('session')) state.currentSession = qp.get('session');
   }
-  return tab || 'prompts';
+  // Legacy #transcript?session= deep link → list view + open panel after boot.
+  if (tab === 'transcript') {
+    if (state.currentSession) setTimeout(() => openTranscriptPanel(state.currentSession), 0);
+    return 'sessions';
+  }
+  if (!tabRenderers[tab]) return 'sessions';
+  return tab;
 }
 
 // ── Stats / health / projects boot ─────────────────────────────────
@@ -643,27 +821,6 @@ async function loadProjects() {
   } catch (e) { console.error('loadProjects failed:', e); }
 }
 
-function renderPersonaFilter() {
-  const root = document.getElementById('persona-filter');
-  const items = [{ slug: '', label: 'all' }, ...PERSONAS.map(p => ({ slug: p, label: p }))];
-  root.innerHTML = items.map(p => {
-    const cls = p.slug ? `persona-${personaCls(p.slug) || 'claude'}` : '';
-    const active = state.personaFilter === p.slug;
-    return `
-      <div class="persona-item flex items-center gap-2 px-1 py-0.5 rounded cursor-pointer ${active ? 'bg-surface0' : 'hover:bg-surface0'}" data-persona="${escapeHtml(p.slug)}">
-        <span class="persona-rail h-3 ${cls}"></span>
-        <span class="${active ? 'text-mauve' : 'text-subtext0'}">${escapeHtml(p.label)}</span>
-      </div>
-    `;
-  }).join('');
-  root.querySelectorAll('[data-persona]').forEach(el => {
-    el.addEventListener('click', () => {
-      state.personaFilter = el.dataset.persona;
-      renderPersonaFilter();
-      tabRenderers[state.tab]();
-    });
-  });
-}
 
 // ── Wire up ────────────────────────────────────────────────────────
 
@@ -789,7 +946,6 @@ function connectSSE() {
 
 // Boot
 (async () => {
-  renderPersonaFilter();
   await Promise.all([loadProjects(), refreshStats(), refreshHealthBadge()]);
   navigate(parseHash());
   setInterval(refreshHealthBadge, 30000);
