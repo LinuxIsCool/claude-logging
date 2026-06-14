@@ -203,6 +203,36 @@ def reconcile_project(
     return len(new_rows), final_count
 
 
+def run_reconcile_all(dry_run: bool = False, quiet: bool = False) -> int:
+    """Reconcile every shard. Returns total events recovered (or, in dry_run,
+    total drift = sum of per-shard (source - index) without writing)."""
+    idx_con = sqlite3.connect(INDEX_DB, timeout=30.0)
+    total = 0
+    dbs = discover_dbs()
+    for i, (slug, db) in enumerate(dbs, 1):
+        try:
+            if dry_run:
+                proj = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=30.0)
+                src_count = proj.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+                proj.close()
+                drift = max(0, src_count - _index_count(idx_con, slug))
+                if drift and not quiet:
+                    print(f"  {i:3}/{len(dbs)} DRIFT {drift:6,} {slug}")
+                total += drift
+            else:
+                recovered, _ = reconcile_project(idx_con, slug, db)
+                idx_con.commit()
+                if recovered and not quiet:
+                    print(f"  {i:3}/{len(dbs)} +{recovered:6,} {slug}")
+                total += recovered
+        except Exception as e:
+            print(f"  {i:3}/{len(dbs)} ERROR {slug}: {type(e).__name__}: {e}")
+    idx_con.close()
+    verb = "would recover" if dry_run else "recovered"
+    print(f"=== RECONCILE: {verb} {total:,} events across {len(dbs)} shards ===")
+    return total
+
+
 def update_rollup_state(idx_con: sqlite3.Connection, slug: str, last_ts: str | None, event_count: int) -> None:
     idx_con.execute(
         "INSERT INTO rollup_state (project_slug, last_event_ts, last_synced_at, event_count, schema_version) "
@@ -235,11 +265,19 @@ def main() -> int:
                         help="Process only N DBs (testing)")
     parser.add_argument("--quiet", action="store_true",
                         help="Suppress per-project lines; print summary only")
+    parser.add_argument("--reconcile", action="store_true",
+                        help="Run a true event_id anti-join completeness pass over all shards")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="With --reconcile: report drift without writing")
     args = parser.parse_args()
 
     if not INDEX_DB.exists():
         print(f"ERROR: index DB missing at {INDEX_DB}. Run init_cross_project_index_db.py first.")
         return 1
+
+    if args.reconcile:
+        run_reconcile_all(dry_run=args.dry_run, quiet=args.quiet)
+        return 0
 
     idx_con = sqlite3.connect(INDEX_DB, timeout=30.0)
 

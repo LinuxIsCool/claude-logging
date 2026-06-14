@@ -149,3 +149,40 @@ def test_reconcile_idempotent_after_rollup(tmp_path):
         "SELECT COUNT(*) FROM events_index_fts WHERE events_index_fts MATCH 'bravo'"
     ).fetchone()[0]
     assert hits == 1
+
+
+def test_run_reconcile_all_over_shards(tmp_path, monkeypatch):
+    root = tmp_path / "logging"
+    (root / "_index").mkdir(parents=True)
+    for slug in ("projA", "projB"):
+        _make_source(root / slug / "db" / "logging.db",
+                     [_ev(f"evt-{slug}", "2026-06-14T01:00:00+00:00")])
+    idx_path = root / "_index" / "index.db"
+    _make_index(idx_path).close()
+
+    monkeypatch.setattr(rollup_index, "LOGGING_ROOT", root)
+    monkeypatch.setattr(rollup_index, "INDEX_DB", idx_path)
+
+    total = rollup_index.run_reconcile_all(dry_run=False, quiet=True)
+    assert total == 2
+
+    con = sqlite3.connect(idx_path)
+    assert con.execute("SELECT COUNT(*) FROM events_index").fetchone()[0] == 2
+    con.close()
+
+
+def test_run_reconcile_all_dry_run_writes_nothing(tmp_path, monkeypatch):
+    root = tmp_path / "logging"
+    (root / "_index").mkdir(parents=True)
+    _make_source(root / "projA" / "db" / "logging.db",
+                 [_ev("evt-a", "2026-06-14T01:00:00+00:00")])
+    idx_path = root / "_index" / "index.db"
+    _make_index(idx_path).close()
+    monkeypatch.setattr(rollup_index, "LOGGING_ROOT", root)
+    monkeypatch.setattr(rollup_index, "INDEX_DB", idx_path)
+
+    would = rollup_index.run_reconcile_all(dry_run=True, quiet=True)
+    assert would == 1
+    con = sqlite3.connect(idx_path)
+    assert con.execute("SELECT COUNT(*) FROM events_index").fetchone()[0] == 0
+    con.close()
