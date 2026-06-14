@@ -41,6 +41,48 @@ DEFAULT_LIMIT = 50
 MAX_LIMIT = 500
 
 
+# ── Prompt authorship classifier ────────────────────────────────────
+# Claude Code logs hook/plugin/cron-injected text as UserPromptSubmit events
+# too — they are NOT typed by the human. No data field marks authorship
+# (`agent_type` = the session's persona, not the writer), so we classify on
+# content markers. SUBSTRING markers (appear anywhere) + PREFIX markers.
+_AGENT_SUBSTR = (
+    "<task-notification>",
+    "<system-reminder>",
+    "<local-command",
+    "<command-name>",
+    "<command-message>",
+    "[from security-guidance",
+    "automated security review, not user input",
+    "<persisted-context",
+)
+_AGENT_PREFIX = ("-\n", "-\r\n")  # cron/scheduled wrapper (brief, capacity review, ScheduleWakeup)
+
+
+def classify_author(text: str | None) -> str:
+    """'agent' if the prompt was injected by a hook/plugin/cron; else 'human'."""
+    t = text or ""
+    if any(m in t for m in _AGENT_SUBSTR):
+        return "agent"
+    if t.startswith(_AGENT_PREFIX):
+        return "agent"
+    return "human"
+
+
+def _author_sql(author: str, col: str = "content_preview") -> tuple[str, list[str]]:
+    """SQL fragment + args to filter `col` by author.
+
+    Returns ('', []) when no filtering needed (author not human/agent).
+    """
+    if author not in ("human", "agent"):
+        return "", []
+    likes = [f"%{m}%" for m in _AGENT_SUBSTR] + [f"{p}%" for p in _AGENT_PREFIX]
+    ors = " OR ".join([f"{col} LIKE ?"] * len(likes))
+    if author == "agent":
+        return f"({ors})", likes
+    return f"NOT ({ors})", likes
+
+
 def _open_ro(db_path: Path) -> sqlite3.Connection:
     """Open SQLite DB read-only with row factory."""
     con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=10.0)
@@ -249,6 +291,14 @@ class LoggingAccessor:
             if project:
                 where_clauses.append("project_slug = ?")
                 args.append(project)
+            # author filter (human-typed vs agent/hook/cron-injected). Default
+            # to 'human' so the Prompts view shows what the user actually wrote.
+            author = params.get("author", "human")
+            # FTS path aliases the column as ei.content_preview; plain path doesn't.
+            auth_sql, auth_args = _author_sql(author, "ei.content_preview" if q else "content_preview")
+            if auth_sql:
+                where_clauses.append(auth_sql)
+                args.extend(auth_args)
 
             # FTS5 path if q present
             if q:
@@ -287,6 +337,7 @@ class LoggingAccessor:
             "persona": row["persona"],
             "preview": row["content_preview"],
             "has_full": bool(row["has_full_content"]),
+            "author": classify_author(row["content_preview"]),
         }
 
     def sessions(self, params: dict[str, Any]) -> list[dict[str, Any]]:
@@ -339,17 +390,21 @@ class LoggingAccessor:
             ids = [r["session_id"] for r in rows]
             placeholders = ",".join("?" * len(ids))
             title_cursor = con.execute(
-                f"SELECT session_id, content_preview FROM ("
-                f"  SELECT session_id, content_preview, "
+                f"SELECT session_id, content_preview, event_id FROM ("
+                f"  SELECT session_id, content_preview, event_id, "
                 f"  ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY ts ASC) AS rn "
                 f"  FROM events_index "
                 f"  WHERE type = 'UserPromptSubmit' AND session_id IN ({placeholders})"
                 f") WHERE rn = 1",
                 ids,
             )
-            titles = {r["session_id"]: r["content_preview"] for r in title_cursor}
+            titles = {r["session_id"]: (r["content_preview"], r["event_id"]) for r in title_cursor}
             for r in rows:
-                r["title"] = titles.get(r["session_id"])
+                tp = titles.get(r["session_id"])
+                r["title"] = tp[0] if tp else None
+                # event_id of the session's first user prompt → UI focuses/scrolls
+                # to it when the session is opened (task-4132 / selection ask).
+                r["title_event_id"] = tp[1] if tp else None
             return rows
         finally:
             con.close()

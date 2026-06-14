@@ -67,7 +67,20 @@
     transition: transform 0.12s, box-shadow 0.12s; cursor: pointer;
   }
   .ecard:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(0,0,0,0.5), 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent); }
-  .ecard.selected { box-shadow: 0 0 0 2px var(--accent), 0 2px 8px rgba(0,0,0,0.4); }
+  .ecard.selected {
+    border-left-width: 5px;
+    background: color-mix(in srgb, var(--accent) 12%, #181825);
+    box-shadow: 0 0 0 2px var(--accent), 0 0 18px 2px color-mix(in srgb, var(--accent) 45%, transparent), 0 2px 8px rgba(0,0,0,0.5);
+  }
+  .ecard.selected .ecard-head { background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 32%, transparent), color-mix(in srgb, var(--accent) 12%, transparent)); }
+  /* The focused transcript event (session's prompt / clicked prompt) — loud + unmistakable */
+  .ecard.tx-focus {
+    border: 2px solid var(--accent);
+    background: color-mix(in srgb, var(--accent) 20%, #181825);
+    box-shadow: 0 0 0 3px var(--accent), 0 0 26px 5px color-mix(in srgb, var(--accent) 60%, transparent);
+  }
+  .ecard.tx-focus .ecard-title, .ecard.tx-focus .ecard-body { color: #f1f5f9; }
+  .ecard.tx-focus .ecard-head::before { content: '▶ '; color: var(--accent); font-weight: 700; }
   .ecard-head {
     display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
     padding: 0.5rem 0.75rem;
@@ -155,27 +168,24 @@
   <!-- Left nav rail -->
   <aside id="left-nav" class="lg:col-span-2 min-w-0">
     <div class="sticky top-[80px] space-y-3">
+      <!-- Nav with inline corpus counts (counts merged up from the old CORPUS box) -->
       <nav id="view-nav" class="rounded-lg border border-surface0 bg-mantle p-1.5 space-y-0.5">
         <div class="view-nav-item" data-tab="sessions">
-          <span class="glyph">▤</span><span>Sessions</span>
+          <span class="glyph">▤</span><span>Sessions</span><span id="stat-sessions" class="ml-auto text-overlay1 font-mono">·</span>
         </div>
         <div class="view-nav-item" data-tab="prompts">
-          <span class="glyph">▸</span><span>Prompts</span>
+          <span class="glyph">▸</span><span>Prompts</span><span id="stat-prompts" class="ml-auto text-overlay1 font-mono">·</span>
+        </div>
+        <div class="view-nav-item" data-tab="events">
+          <span class="glyph">≋</span><span>Events</span><span id="stat-events" class="ml-auto text-overlay1 font-mono">·</span>
+        </div>
+        <div class="view-nav-item" data-tab="projects">
+          <span class="glyph">◫</span><span>Projects</span><span id="stat-projects" class="ml-auto text-overlay1 font-mono">·</span>
         </div>
         <div class="view-nav-item" data-tab="stats">
           <span class="glyph">▦</span><span>Stats</span>
         </div>
       </nav>
-
-      <!-- Left stats summary -->
-      <div id="left-stats" class="rounded-lg border border-surface0 bg-mantle p-3 text-xs space-y-1">
-        <div class="font-pixel text-mauve mb-2 text-[0.65rem]">CORPUS</div>
-        <div class="flex justify-between"><span class="text-overlay0">prompts</span><span id="stat-prompts" class="text-text">·</span></div>
-        <div class="flex justify-between"><span class="text-overlay0">events</span><span id="stat-events" class="text-text">·</span></div>
-        <div class="flex justify-between"><span class="text-overlay0">projects</span><span id="stat-projects" class="text-text">·</span></div>
-        <div class="flex justify-between"><span class="text-overlay0">sessions</span><span id="stat-sessions" class="text-text">·</span></div>
-      </div>
-
     </div>
   </aside>
 
@@ -219,8 +229,10 @@ const state = {
   projectSlug: '',
   highlightQuery: '',
   sessionsSort: 'ended_at', sessionsOrder: 'desc', sessionsQ: '',
-  promptsSort: 'ts', promptsOrder: 'desc', promptsQ: '',
-  txQ: '', txTypeFilter: '', txOrder: 'asc', txScopeAll: false,
+  promptsSort: 'ts', promptsOrder: 'desc', promptsQ: '', promptsAuthor: 'human',
+  txQ: '', txTypeFilter: '', txOrder: 'desc', txScopeAll: false, txFocusEventId: null,
+  eventsQ: '', eventsType: '', eventsSort: 'ts', eventsOrder: 'desc',
+  projectsSort: 'recent',
   sessions: [],
   prompts: [],
   searchResults: null,
@@ -293,16 +305,19 @@ function fmtFullDate(iso) {
 }
 
 // Event-type glyphs — fast visual scan of a transcript (Phase 2).
+// Restrained, safe-width emoji set (per claude-emoji study, task-4114):
+// drops ambiguous-width chars (✅❌☑️⏹️), confusing ones (🧵🧶), and uses a
+// muted typographic glyph (›) for housekeeping meta-events to cut visual noise.
 const EVENT_GLYPH = {
-  UserPromptSubmit: '💬', AssistantResponse: '🤖',
-  PreToolUse: '🔧', PostToolUse: '✅', PostToolUseFailure: '❌',
-  SubagentStart: '🧵', SubagentStop: '🧶', Stop: '⏹️', StopFailure: '🛑',
-  SessionStart: '🚀', SessionEnd: '🏁', Notification: '🔔',
-  PermissionRequest: '🔐', InstructionsLoaded: '📋', CwdChanged: '📂',
-  ConfigChange: '⚙️', TaskCreated: '📌', TaskCompleted: '☑️',
-  PreCompact: '🗜️', PostCompact: '📦',
+  UserPromptSubmit: '📩', AssistantResponse: '🗨️',
+  PreToolUse: '🔧', PostToolUse: '✔', PostToolUseFailure: '✘',
+  SubagentStart: '🚀', SubagentStop: '🛬', Stop: '🏁', StopFailure: '🚨',
+  SessionStart: '🌅', SessionEnd: '🌆', Notification: '🔔',
+  PermissionRequest: '🔐', TaskCreated: '📌', TaskCompleted: '✔',
+  PreCompact: '🗜️',
+  InstructionsLoaded: '›', CwdChanged: '›', ConfigChange: '›', PostCompact: '›',
 };
-function eventGlyph(type) { return EVENT_GLYPH[type] || '•'; }
+function eventGlyph(type) { return EVENT_GLYPH[type] || '›'; }
 
 // Per-session colour — stable hash of session_id → Catppuccin accent palette.
 // Sessions are colour-coded; prompts inherit their session's colour.
@@ -378,17 +393,20 @@ function shortenSlug(slug) {
 // session transcript.
 function renderPromptCard(p) {
   const accent = sessionColor(p.session_id);
+  const author = p.author === 'agent'
+    ? '<span class="badge" style="background:rgba(250,179,135,0.18);color:#fab387">🤖 agent</span>'
+    : '<span class="badge" style="background:rgba(166,227,161,0.18);color:#a6e3a1">👤 you</span>';
   return `
     <div class="ecard animate-fade-in mb-3" style="--accent:${accent}" data-event-id="${escapeHtml(p.event_id)}" data-session="${escapeHtml(p.session_id || '')}">
       <div class="ecard-head">
         <span class="ecard-dot"></span>
-        <span class="badge">💬 prompt</span>
+        ${author}
         <span class="chip" title="${escapeHtml(p.project_slug)}">${escapeHtml(shortenSlug(p.project_slug))}</span>
         <span class="ecard-ts">${fmtClock(p.ts)}<span class="ago" data-age data-iso="${escapeHtml(p.ts)}">${fmtTime(p.ts)}</span></span>
       </div>
       <div class="ecard-body">${highlightEscaped(p.preview || '', state.highlightQuery)}</div>
       <div class="ecard-foot">
-        <span class="chip chip-accent" title="session">⛓ ${escapeHtml((p.session_id || '').slice(0,8))}</span>
+        <span class="chip chip-accent" title="session">${escapeHtml((p.session_id || '').slice(0,8))}</span>
         <span>${fmtFullDate(p.ts)}</span>
       </div>
     </div>
@@ -399,7 +417,7 @@ function renderEventRow(e, accent) {
   const content = e.content || (e.data?.response) || (e.data?.prompt) || '';
   const a = accent || sessionColor(e.session_id || state.currentSession);
   return `
-    <div class="ecard animate-fade-in mb-3" style="--accent:${a}; cursor:default">
+    <div class="ecard animate-fade-in mb-3" style="--accent:${a}" data-session="${escapeHtml(e.session_id || '')}" data-event-id="${escapeHtml(e.event_id || '')}">
       <div class="ecard-head">
         <span class="ecard-dot"></span>
         <span class="badge">${eventGlyph(e.type)} ${escapeHtml(e.type)}</span>
@@ -458,11 +476,18 @@ async function renderPromptsTab() {
   main.innerHTML = `
     <div class="toolbar">
       <input id="prompts-q" type="text" placeholder="🔍 search prompts (FTS5)…" class="txt text-xs flex-1 min-w-[220px]" value="${escapeHtml(state.promptsQ)}" autocomplete="off" />
+      <span class="text-overlay0 text-xs">author:</span>
+      <button class="sortbtn ${state.promptsAuthor==='human'?'active':''}" data-author="human">👤 mine</button>
+      <button class="sortbtn ${state.promptsAuthor==='agent'?'active':''}" data-author="agent">🤖 agent</button>
+      <button class="sortbtn ${state.promptsAuthor==='both'?'active':''}" data-author="both">both</button>
       <span class="text-overlay0 text-xs">sort:</span>
       ${sortControls([{key:'ts',label:'time'},{key:'project_slug',label:'project'},{key:'session_id',label:'session'}], state.promptsSort, state.promptsOrder, 'prompts')}
     </div>
     <div id="prompts-list" class="empty">Loading…</div>
   `;
+  main.querySelectorAll('[data-author]').forEach(el => el.addEventListener('click', () => {
+    state.promptsAuthor = el.dataset.author; renderPromptsTab();
+  }));
   const qEl = document.getElementById('prompts-q');
   qEl.addEventListener('input', (e) => {
     clearTimeout(window._qDebounce);
@@ -482,7 +507,7 @@ async function loadPrompts() {
   const q = state.promptsQ;
   state.highlightQuery = q || '';
   try {
-    const params = { limit: 50, sort: state.promptsSort, order: state.promptsOrder };
+    const params = { limit: 50, sort: state.promptsSort, order: state.promptsOrder, author: state.promptsAuthor };
     if (state.projectSlug) params.project_slug = state.projectSlug;
     if (q) params.q = q;
     const prompts = await api('/api/prompts', params);
@@ -503,7 +528,7 @@ function wireCards(root) {
   root.querySelectorAll('[data-event-id]').forEach(el => {
     el.addEventListener('click', () => {
       const sid = el.dataset.session;
-      if (sid) openTranscriptPanel(sid);
+      if (sid) openTranscriptPanel(sid, el.dataset.eventId);
     });
   });
 }
@@ -517,11 +542,18 @@ function typeOptions(selected) {
 }
 
 // Open a session's transcript in the RIGHT detail panel (list stays in main).
-function openTranscriptPanel(sessionId) {
+// focusEventId (optional) → that event is highlighted + scrolled to in the panel.
+function openTranscriptPanel(sessionId, focusEventId) {
   if (sessionId) state.currentSession = sessionId;
-  // mark the selected card
-  document.querySelectorAll('.ecard.selected').forEach(el => el.classList.remove('selected'));
-  document.querySelectorAll(`[data-session-open="${sessionId}"], [data-session="${sessionId}"]`).forEach(el => el.classList.add('selected'));
+  state.txFocusEventId = focusEventId || null;
+  // Open a session chronologically (oldest→top) so its first prompt — the card
+  // title — sits at the TOP and is highlighted there (Shawn's choice). The in-panel
+  // time toggle still flips to newest-first. Cross-transcript scope reset off.
+  state.txScopeAll = false;
+  state.txOrder = 'asc';
+  // mark the selected card in the LIST (left)
+  document.querySelectorAll('#view-root .ecard.selected').forEach(el => el.classList.remove('selected'));
+  document.querySelectorAll(`#view-root [data-session-open="${sessionId}"], #view-root [data-event-id="${focusEventId||'__none__'}"]`).forEach(el => el.classList.add('selected'));
   renderTranscriptPanel();
 }
 
@@ -530,6 +562,38 @@ function resetDetailPanel() {
   if (slot) slot.innerHTML = `
     <div class="font-pixel text-mauve mb-2 text-[0.65rem]">DETAIL</div>
     <div class="text-overlay0 text-xs">No session selected. Click a session or prompt card to read its transcript here.</div>`;
+}
+
+// Open a project's sessions in the RIGHT detail panel, reverse-chrono by most
+// recently updated (sessions() default sort = ended_at DESC). Does NOT touch the
+// global project filter (avoids the sticky-filter trap).
+async function openProjectPanel(slug) {
+  const slot = document.getElementById('detail-slot');
+  if (!slot) return;
+  document.querySelectorAll('#view-root .ecard.selected').forEach(el => el.classList.remove('selected'));
+  document.querySelectorAll(`#view-root [data-project-open="${slug}"]`).forEach(el => el.classList.add('selected'));
+  const accent = sessionColor(slug);
+  slot.innerHTML = `
+    <div class="flex items-center gap-2 mb-3 text-xs">
+      <span class="ecard-dot" style="--accent:${accent}; background:${accent}"></span>
+      <span class="text-subtext0">${escapeHtml(shortenSlug(slug))}</span>
+      <button class="sortbtn ml-auto" data-action="proj-close">× close</button>
+    </div>
+    <div id="proj-sessions" class="empty">Loading…</div>`;
+  slot.querySelector('[data-action="proj-close"]').addEventListener('click', () => {
+    document.querySelectorAll('#view-root .ecard.selected').forEach(el => el.classList.remove('selected'));
+    resetDetailPanel();
+  });
+  const list = document.getElementById('proj-sessions');
+  try {
+    const sessions = await api('/api/sessions', { limit: 200, sort: 'ended_at', order: 'desc', project_slug: slug });
+    if (!sessions.length) { list.innerHTML = `<div class="empty">No sessions in this project.</div>`; return; }
+    list.innerHTML = `<div class="text-xs text-subtext0 mb-2">${sessions.length} session${sessions.length===1?'':'s'} · most recent first</div>` +
+      sessions.map(renderSessionCard).join('\n');
+    list.querySelectorAll('[data-session-open]').forEach(el => el.addEventListener('click', () => openTranscriptPanel(el.dataset.sessionOpen, el.dataset.titleEvent || null)));
+  } catch (e) {
+    list.innerHTML = `<div class="empty text-red">Error: ${escapeHtml(e.message)}</div>`;
+  }
 }
 
 function renderTranscriptPanel() {
@@ -596,6 +660,14 @@ async function loadTranscript() {
     if (!events.length) { list.innerHTML = `<div class="empty">No events match.</div>`; return; }
     list.innerHTML = `<div class="text-xs text-subtext0 mb-3">${header}</div>` +
       events.map(e => renderEventRow(e, state.txScopeAll ? sessionColor(e.session_id) : accent)).join('\n');
+    // Highlight + scroll to the focused event (e.g. the prompt that was clicked).
+    if (state.txFocusEventId) {
+      const target = list.querySelector(`[data-event-id="${state.txFocusEventId}"]`);
+      if (target) {
+        target.classList.add('tx-focus');
+        target.scrollIntoView({ block: 'center' });
+      }
+    }
   } catch (e) {
     list.innerHTML = `<div class="empty text-red">Error: ${escapeHtml(e.message)}</div>`;
   }
@@ -674,19 +746,19 @@ function renderSessionCard(s) {
   const dur = fmtDuration(s.started_at, s.ended_at);
   const accent = sessionColor(s.session_id);
   return `
-    <div class="ecard animate-fade-in mb-3" style="--accent:${accent}" data-session-open="${escapeHtml(s.session_id || '')}">
+    <div class="ecard animate-fade-in mb-3" style="--accent:${accent}" data-session-open="${escapeHtml(s.session_id || '')}" data-title-event="${escapeHtml(s.title_event_id || '')}">
       <div class="ecard-head">
         <span class="ecard-dot"></span>
         <span class="chip" title="${escapeHtml(s.project_slug || '')}">${escapeHtml(shortenSlug(s.project_slug))}</span>
-        <span class="ecard-ts">${fmtClock(s.ended_at)}<span class="ago" data-age data-iso="${escapeHtml(s.ended_at)}">${fmtTime(s.ended_at)}</span></span>
+        <span class="ecard-ts" title="last activity">${fmtClock(s.ended_at)}<span class="ago" data-age data-iso="${escapeHtml(s.ended_at)}">${fmtTime(s.ended_at)}</span></span>
       </div>
       <div class="ecard-title">${highlightEscaped(title, state.sessionsQ)}</div>
       <div class="ecard-foot">
-        <span class="chip chip-accent">⛓ ${escapeHtml((s.session_id || '').slice(0,8))}</span>
-        <span title="prompts">💬 ${s.prompt_count || 0}</span>
-        <span title="events">▦ ${(s.event_count || 0).toLocaleString()}</span>
-        ${dur ? `<span title="duration">⏱ ${dur}</span>` : ''}
-        <span class="ml-auto">${fmtFullDate(s.ended_at)}</span>
+        <span class="chip chip-accent">${escapeHtml((s.session_id || '').slice(0,8))}</span>
+        <span>${s.prompt_count || 0} prompts</span>
+        <span>${(s.event_count || 0).toLocaleString()} events</span>
+        ${dur ? `<span>${dur}</span>` : ''}
+        <span class="ml-auto text-overlay0">started ${fmtFullDate(s.started_at)} · last ${fmtClock(s.ended_at)}</span>
       </div>
     </div>
   `;
@@ -731,7 +803,104 @@ async function loadSessions() {
     if (!sessions.length) { list.innerHTML = `<div class="empty">No sessions found.</div>`; return; }
     list.innerHTML = sessions.map(renderSessionCard).join('\n');
     list.querySelectorAll('[data-session-open]').forEach(el => el.addEventListener('click', () => {
-      openTranscriptPanel(el.dataset.sessionOpen);
+      openTranscriptPanel(el.dataset.sessionOpen, el.dataset.titleEvent || null);
+    }));
+  } catch (e) {
+    list.innerHTML = `<div class="empty text-red">Error: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+// ── Events view (all events, cross-corpus search/filter/sort) ───────
+
+async function renderEventsTab() {
+  const main = document.getElementById('view-root');
+  main.innerHTML = `
+    <div class="toolbar">
+      <input id="events-q" type="text" placeholder="🔍 search all events (FTS5)…" class="txt text-xs flex-1 min-w-[220px]" value="${escapeHtml(state.eventsQ)}" autocomplete="off" />
+      <select id="events-type" class="txt text-xs">${typeOptions(state.eventsType)}</select>
+      <span class="text-overlay0 text-xs">sort:</span>
+      ${sortControls([{key:'ts',label:'time'},{key:'type',label:'type'},{key:'project_slug',label:'project'}], state.eventsSort, state.eventsOrder, 'events')}
+    </div>
+    <div id="events-list" class="empty">Loading…</div>
+  `;
+  document.getElementById('events-q').addEventListener('input', (e) => {
+    clearTimeout(window._eDebounce);
+    window._eDebounce = setTimeout(() => { state.eventsQ = e.target.value; loadEvents(); }, 250);
+  });
+  document.getElementById('events-type').addEventListener('change', (e) => { state.eventsType = e.target.value; loadEvents(); });
+  main.querySelectorAll('[data-sort-group="events"]').forEach(el => el.addEventListener('click', () => {
+    const k = el.dataset.sort;
+    if (state.eventsSort === k) state.eventsOrder = state.eventsOrder === 'asc' ? 'desc' : 'asc';
+    else { state.eventsSort = k; state.eventsOrder = 'desc'; }
+    renderEventsTab();
+  }));
+  await loadEvents();
+}
+
+async function loadEvents() {
+  const list = document.getElementById('events-list');
+  state.highlightQuery = state.eventsQ || '';
+  try {
+    const params = { limit: 100, sort: state.eventsSort, order: state.eventsOrder };
+    if (state.eventsQ) params.q = state.eventsQ;
+    if (state.eventsType) params.types = state.eventsType;
+    if (state.projectSlug) params.project_slug = state.projectSlug;
+    const rows = await api('/api/events', params);
+    if (!rows.length) { list.innerHTML = `<div class="empty">No events found.</div>`; return; }
+    const evs = rows.map(r => ({ event_id: r.event_id, type: r.type, ts: r.ts, content: r.preview, session_id: r.session_id, project_slug: r.project_slug }));
+    list.innerHTML = `<div class="text-xs text-subtext0 mb-3">${rows.length} event${rows.length===1?'':'s'}${state.eventsQ?` matching "${escapeHtml(state.eventsQ)}"`:''}${state.eventsType?` · ${escapeHtml(state.eventsType)}`:''}</div>` +
+      evs.map(e => renderEventRow(e, sessionColor(e.session_id))).join('\n');
+    list.querySelectorAll('[data-session]').forEach(el => el.addEventListener('click', () => {
+      const sid = el.dataset.session; if (sid) openTranscriptPanel(sid);
+    }));
+  } catch (e) {
+    list.innerHTML = `<div class="empty text-red">Error: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+// ── Projects view ───────────────────────────────────────────────────
+
+function renderProjectCard(p) {
+  const accent = sessionColor(p.project_slug);
+  return `
+    <div class="ecard animate-fade-in mb-3" style="--accent:${accent}" data-project-open="${escapeHtml(p.project_slug)}">
+      <div class="ecard-head">
+        <span class="ecard-dot"></span>
+        <span class="badge">project</span>
+        <span class="ecard-ts">${(p.event_count||0).toLocaleString()}<span class="ago">events</span></span>
+      </div>
+      <div class="ecard-title">${escapeHtml(shortenSlug(p.project_slug))}</div>
+      <div class="ecard-foot">
+        <span class="chip" title="${escapeHtml(p.project_slug)}">${escapeHtml(p.project_slug)}</span>
+        <span class="ml-auto">last: ${escapeHtml(fmtFullDate(p.last_event_ts))}</span>
+      </div>
+    </div>
+  `;
+}
+
+async function renderProjectsTab() {
+  const main = document.getElementById('view-root');
+  state.highlightQuery = '';
+  main.innerHTML = `
+    <div class="toolbar">
+      <span class="text-overlay0 text-xs">sort:</span>
+      <button class="sortbtn ${state.projectsSort==='recent'?'active':''}" data-psort="recent">recent</button>
+      <button class="sortbtn ${state.projectsSort==='events'?'active':''}" data-psort="events">events</button>
+      <button class="sortbtn ${state.projectsSort==='name'?'active':''}" data-psort="name">name</button>
+    </div>
+    <div id="projects-list" class="empty">Loading…</div>
+  `;
+  main.querySelectorAll('[data-psort]').forEach(el => el.addEventListener('click', () => { state.projectsSort = el.dataset.psort; renderProjectsTab(); }));
+  const list = document.getElementById('projects-list');
+  try {
+    let projects = await api('/api/projects');
+    if (state.projectsSort === 'events') projects = projects.slice().sort((a,b) => (b.event_count||0)-(a.event_count||0));
+    else if (state.projectsSort === 'name') projects = projects.slice().sort((a,b) => (a.project_slug||'').localeCompare(b.project_slug||''));
+    // 'recent' = backend default (last_event_ts desc)
+    if (!projects.length) { list.innerHTML = `<div class="empty">No projects found.</div>`; return; }
+    list.innerHTML = `<div class="text-xs text-subtext0 mb-3">${projects.length} projects</div>` + projects.map(renderProjectCard).join('\n');
+    list.querySelectorAll('[data-project-open]').forEach(el => el.addEventListener('click', () => {
+      openProjectPanel(el.dataset.projectOpen);
     }));
   } catch (e) {
     list.innerHTML = `<div class="empty text-red">Error: ${escapeHtml(e.message)}</div>`;
@@ -743,6 +912,8 @@ async function loadSessions() {
 const tabRenderers = {
   sessions: renderSessionsTab,
   prompts: renderPromptsTab,
+  events: renderEventsTab,
+  projects: renderProjectsTab,
   stats: renderSettingsTab,
 };
 // Transcript is NOT a tab — it opens in the right detail panel via openTranscriptPanel().
@@ -877,15 +1048,17 @@ function setLiveDot(color, title) {
 
 let _liveRefetchTimer = null;
 function scheduleLiveRefetch() {
-  // Coalesce bursts: multiple corpus-changed events within 100ms become
-  // one re-render.
+  // Live corpus changes update ONLY the count badges — NEVER re-render the
+  // current list. Re-rendering on every logged event (logging logs this very
+  // session, so events stream constantly) caused a ~per-minute flash that wiped
+  // the user's card selection + scroll position. Counts are textContent writes
+  // (no flash). Manual nav/refresh pulls fresh rows.
   if (_liveRefetchTimer) return;
   _liveRefetchTimer = setTimeout(() => {
     _liveRefetchTimer = null;
-    const r = tabRenderers[state.tab];
-    if (r) Promise.resolve(r()).catch(e => console.warn('live re-render failed:', e));
+    refreshStats().catch(() => {});
     refreshHealthBadge().catch(() => {});
-  }, 100);
+  }, 500);
 }
 
 let _es = null;
@@ -894,11 +1067,12 @@ let _pollFallbackTimer = null;
 
 function startPollFallback() {
   if (_pollFallbackTimer) return;
-  setLiveDot('yellow', 'SSE disconnected — polling every 15s');
+  setLiveDot('yellow', 'SSE disconnected — polling counts every 30s');
+  // Counts only — do NOT re-render the list (preserves selection/scroll).
   _pollFallbackTimer = setInterval(() => {
-    const r = tabRenderers[state.tab];
-    if (r) Promise.resolve(r()).catch(() => {});
-  }, 15000);
+    refreshStats().catch(() => {});
+    refreshHealthBadge().catch(() => {});
+  }, 30000);
 }
 
 function stopPollFallback() {
