@@ -120,3 +120,32 @@ def test_reconcile_recovered_event_is_searchable(tmp_path):
         "SELECT event_id FROM events_index_fts WHERE events_index_fts MATCH 'zebra'"
     ).fetchone()
     assert hit is not None and hit[0] == "evt-9"
+
+
+def test_reconcile_idempotent_after_rollup(tmp_path):
+    """Reconcile must be a no-op (incl. no duplicate FTS rows) after rollup
+    already indexed the events."""
+    src = tmp_path / "proj" / "db" / "logging.db"
+    _make_source(src, [
+        _ev("evt-1", "2026-06-14T01:00:00+00:00", content="alpha bravo"),
+        _ev("evt-2", "2026-06-14T02:00:00+00:00", content="charlie delta"),
+    ])
+    idx = _make_index(tmp_path / "index.db")
+
+    inserted, max_ts = rollup_index.rollup_project(idx, "proj", src)
+    rollup_index.update_rollup_state(idx, "proj", max_ts, inserted)
+    idx.commit()
+
+    # Reconcile after rollup: nothing to recover.
+    recovered, idx_count = rollup_index.reconcile_project(idx, "proj", src)
+    idx.commit()
+    assert recovered == 0
+    assert idx_count == 2
+
+    # FTS must have exactly one row per event (no duplicates).
+    fts_total = idx.execute("SELECT COUNT(*) FROM events_index_fts").fetchone()[0]
+    assert fts_total == 2
+    hits = idx.execute(
+        "SELECT COUNT(*) FROM events_index_fts WHERE events_index_fts MATCH 'bravo'"
+    ).fetchone()[0]
+    assert hits == 1

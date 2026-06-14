@@ -120,7 +120,12 @@ def _index_count(idx_con: sqlite3.Connection, slug: str) -> int:
 
 def _upsert_event_count(idx_con: sqlite3.Connection, slug: str, count: int) -> None:
     """Set rollup_state.event_count to the true index count WITHOUT touching
-    last_event_ts (the hot-path watermark)."""
+    last_event_ts (the hot-path watermark).
+
+    Note: when no rollup_state row exists yet, this creates one with
+    last_event_ts = NULL intentionally — the hot-path update_rollup_state owns
+    the watermark, and a NULL watermark correctly triggers a full scan on the
+    next rollup."""
     idx_con.execute(
         "INSERT INTO rollup_state (project_slug, event_count, schema_version) "
         "VALUES (?, ?, 1) "
@@ -137,6 +142,10 @@ def reconcile_project(
     Fast path: if source COUNT == index COUNT for this slug, no work.
     On drift: anti-join source events by event_id, INSERT OR IGNORE the missing
     rows into events_index + events_index_fts (same projection as rollup_project).
+
+    Note: the COUNT-equality fast path assumes per-project source DBs are
+    append-only (deletes + offsetting inserts would defeat it) — a known,
+    accepted constraint.
 
     Returns (inserted, index_count_for_slug).
     """
@@ -183,7 +192,7 @@ def reconcile_project(
             new_rows,
         )
         idx_con.executemany(
-            "INSERT INTO events_index_fts "
+            "INSERT OR IGNORE INTO events_index_fts "
             "(event_id, project_slug, session_id, type, persona, content_preview) "
             "VALUES (?, ?, ?, ?, ?, ?)",
             fts_rows,
