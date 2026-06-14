@@ -112,6 +112,88 @@ def rollup_project(idx_con: sqlite3.Connection, slug: str, db_path: Path) -> tup
     return len(new_rows), max_ts
 
 
+def _index_count(idx_con: sqlite3.Connection, slug: str) -> int:
+    return idx_con.execute(
+        "SELECT COUNT(*) FROM events_index WHERE project_slug = ?", (slug,)
+    ).fetchone()[0]
+
+
+def _upsert_event_count(idx_con: sqlite3.Connection, slug: str, count: int) -> None:
+    """Set rollup_state.event_count to the true index count WITHOUT touching
+    last_event_ts (the hot-path watermark)."""
+    idx_con.execute(
+        "INSERT INTO rollup_state (project_slug, event_count, schema_version) "
+        "VALUES (?, ?, 1) "
+        "ON CONFLICT(project_slug) DO UPDATE SET event_count = excluded.event_count",
+        (slug, count),
+    )
+
+
+def reconcile_project(
+    idx_con: sqlite3.Connection, slug: str, db_path: Path
+) -> tuple[int, int]:
+    """True completeness pass for one shard, keyed on event_id (not ts).
+
+    Fast path: if source COUNT == index COUNT for this slug, no work.
+    On drift: anti-join source events by event_id, INSERT OR IGNORE the missing
+    rows into events_index + events_index_fts (same projection as rollup_project).
+
+    Returns (inserted, index_count_for_slug).
+    """
+    proj_con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=30.0)
+    proj_con.row_factory = sqlite3.Row
+    try:
+        src_count = proj_con.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+        idx_count = _index_count(idx_con, slug)
+
+        if src_count == idx_count:
+            _upsert_event_count(idx_con, slug, idx_count)
+            return 0, idx_count
+
+        existing = {
+            r[0] for r in idx_con.execute(
+                "SELECT event_id FROM events_index WHERE project_slug = ?", (slug,)
+            )
+        }
+        new_rows = []
+        fts_rows = []
+        for row in proj_con.execute(
+            "SELECT id, session_id, type, ts, persona, content FROM events"
+        ):
+            if row["id"] in existing:
+                continue
+            content_preview = (row["content"] or "")[:CONTENT_PREVIEW_LEN]
+            has_full = 1 if (row["content"] and len(row["content"]) > CONTENT_PREVIEW_LEN) else 0
+            new_rows.append((
+                row["id"], slug, row["session_id"], row["type"], row["ts"],
+                row["persona"], content_preview, has_full,
+            ))
+            fts_rows.append((
+                row["id"], slug, row["session_id"], row["type"],
+                row["persona"] or "", content_preview,
+            ))
+    finally:
+        proj_con.close()
+
+    if new_rows:
+        idx_con.executemany(
+            "INSERT OR IGNORE INTO events_index "
+            "(event_id, project_slug, session_id, type, ts, persona, content_preview, has_full_content) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            new_rows,
+        )
+        idx_con.executemany(
+            "INSERT INTO events_index_fts "
+            "(event_id, project_slug, session_id, type, persona, content_preview) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            fts_rows,
+        )
+
+    final_count = _index_count(idx_con, slug)
+    _upsert_event_count(idx_con, slug, final_count)
+    return len(new_rows), final_count
+
+
 def update_rollup_state(idx_con: sqlite3.Connection, slug: str, last_ts: str | None, event_count: int) -> None:
     idx_con.execute(
         "INSERT INTO rollup_state (project_slug, last_event_ts, last_synced_at, event_count, schema_version) "
