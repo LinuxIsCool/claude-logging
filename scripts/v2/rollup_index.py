@@ -208,6 +208,8 @@ def run_reconcile_all(dry_run: bool = False, quiet: bool = False) -> int:
     """Reconcile every shard. Returns total events recovered (or, in dry_run,
     total drift = sum of per-shard (source - index) without writing)."""
     idx_con = sqlite3.connect(INDEX_DB, timeout=30.0)
+    idx_con.execute("PRAGMA journal_mode=WAL")
+    idx_con.execute("PRAGMA synchronous=NORMAL")
     total = 0
     dbs = discover_dbs()
     try:

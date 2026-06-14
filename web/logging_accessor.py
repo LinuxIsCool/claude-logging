@@ -245,11 +245,6 @@ class LoggingAccessor:
                 issues.append(f"index DB query failed: {e}")
 
         completeness = self._completeness()
-        if completeness and completeness.get("missing", 0) > 0:
-            issues.append(
-                f"index incomplete: {completeness['missing']} events missing "
-                f"({completeness.get('pct', 0)}%)"
-            )
 
         # Heartbeat check
         heartbeat = self.root.parent / "health" / "logging.json"

@@ -329,6 +329,8 @@ class RollupDaemon:
             total_inserted += inserted
             index_total += idx_count
             try:
+                # Second source read (reconcile_project already counted internally);
+                # the small TOCTOU vs in-flight writes self-heals on the next pass.
                 src_count = await asyncio.to_thread(_shard_event_count, db)
             except Exception:
                 src_count = idx_count
