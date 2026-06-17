@@ -75,6 +75,10 @@ class Event:
     tool_name: str | None = None
     tool_input_hash: str | None = None
 
+    # task-4155 — capture-time provenance (human signal vs machine noise).
+    # Only meaningful for UserPromptSubmit; None on other event types.
+    provenance: str | None = None
+
     def __post_init__(self):
         if self.data is None:
             self.data = {}
@@ -180,8 +184,13 @@ class SQLiteStorage:
                 tokens_in INTEGER,
                 tokens_out INTEGER,
                 cost_usd REAL,
+                -- task-4155 — capture-time provenance (human vs machine)
+                provenance TEXT,
                 FOREIGN KEY (session_id) REFERENCES sessions(id)
             );
+
+            CREATE INDEX IF NOT EXISTS idx_events_provenance
+            ON events(provenance);
 
             CREATE INDEX IF NOT EXISTS idx_events_session
             ON events(session_id);
@@ -249,6 +258,15 @@ class SQLiteStorage:
                 FOREIGN KEY (session_id) REFERENCES sessions(id)
             );
         """)
+        # task-4155 — idempotent ALTER for pre-existing DBs (CREATE TABLE
+        # IF NOT EXISTS does not add columns to an already-created table).
+        cols = {r[1] for r in self.conn.execute("PRAGMA table_info(events)")}
+        if "provenance" not in cols:
+            self.conn.execute("ALTER TABLE events ADD COLUMN provenance TEXT")
+            self.conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_events_provenance "
+                "ON events(provenance)"
+            )
         self.conn.commit()
 
     def insert_session(self, session: Session) -> None:
@@ -287,8 +305,8 @@ class SQLiteStorage:
                 """
                 INSERT OR REPLACE INTO events
                 (id, session_id, type, ts, agent_session_num, data, content,
-                 persona, agent_id, tool_name, tool_input_hash)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 persona, agent_id, tool_name, tool_input_hash, provenance)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     event.id,
@@ -302,6 +320,7 @@ class SQLiteStorage:
                     event.agent_id,
                     event.tool_name,
                     event.tool_input_hash,
+                    event.provenance,
                 ),
             )
 

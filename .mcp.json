@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "claude-logging": {
+      "command": "uv",
+      "args": ["run", "--directory", "${CLAUDE_PLUGIN_ROOT}", "scripts/mcp_server.py"],
+      "env": {
+        "LOGGING_DB": "${HOME}/.claude/local/logging/-home-shawn/db/logging.db"
+      }
+    }
+  }
+}

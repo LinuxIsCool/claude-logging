@@ -855,6 +855,11 @@ def process_event(event_type: str, stdin_data: dict) -> dict:
     if content:
         event["content"] = content
 
+    # task-4155 — tag provenance at capture (human signal vs machine noise)
+    if event_type == "UserPromptSubmit":
+        from lib.provenance import classify as _classify_provenance
+        event["provenance"] = _classify_provenance(content)
+
     # For SubagentStop: extract full transcript content for searchability
     # The transcript file already exists on disk when this hook fires.
     # We extract all assistant text for FTS/embeddings and structured metadata for rendering.
