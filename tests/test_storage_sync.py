@@ -5,13 +5,14 @@ With external content that delegates to the base table and always passes. It is
 a false green. Assert with MATCH or 'integrity-check'.
 """
 
+import contextlib
 import json
 import subprocess
 import sys
 from pathlib import Path
 
 import lib.storage as storage_module
-from lib.storage import Event, SQLiteStorage, StorageManager
+from lib.storage import Event, Session, SQLiteStorage, StorageManager
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -477,4 +478,74 @@ def test_sync_session_uses_one_transaction(tmp_path):
 def test_busy_timeout_is_what_the_code_claims(tmp_path):
     db = SQLiteStorage(tmp_path / "t.db")
     assert db.conn.execute("PRAGMA busy_timeout").fetchone()[0] == 15000
+    db.close()
+
+
+def test_failed_commit_true_write_leaves_no_orphaned_transaction(tmp_path):
+    """A raising commit=True write must not leave conn.in_transaction True.
+
+    sqlite3 opens an implicit transaction on the first execute() of a write
+    statement, before the statement runs. insert_session's INSERT hits the
+    real NOT NULL constraint on sessions.started_at (a genuine failure mode,
+    not a monkeypatch: sqlite3.Connection is an immutable C type and its
+    methods cannot be patched). Before the fix, nothing rolls back the
+    implicit transaction opened by that INSERT, so in_transaction stays True
+    forever.
+    """
+    db = SQLiteStorage(tmp_path / "t.db")
+    raised = None
+    try:
+        db.insert_session(Session(id="x", started_at=None))
+    except Exception as e:
+        raised = e
+    assert raised is not None, "expected IntegrityError from the NOT NULL constraint"
+    assert "NOT NULL constraint failed" in str(raised)
+    assert db.conn.in_transaction is False, "a failed commit=True write must leave no orphaned transaction"
+    db.close()
+
+
+def test_transaction_works_after_a_previously_failed_commit_true_write(tmp_path):
+    """The connection must not be permanently wedged by an earlier failed write.
+
+    This MUST FAIL against the current code with "cannot start a transaction
+    within a transaction": insert_session's INSERT opens an implicit
+    transaction, raises on the NOT NULL constraint before reaching
+    conn.commit(), and leaves conn.in_transaction True with nobody to roll
+    it back. The next transaction() then issues a bare BEGIN IMMEDIATE,
+    which raises OperationalError before transaction()'s own try:, so it is
+    never rolled back either. The connection is wedged permanently.
+    """
+    db = SQLiteStorage(tmp_path / "t.db")
+    with contextlib.suppress(Exception):
+        db.insert_session(Session(id="x", started_at=None))
+
+    with db.transaction():
+        db.insert_session(Session(id="y", started_at="2026-07-15T00:00:00+00:00"), commit=False)
+
+    row = db.conn.execute("SELECT id FROM sessions WHERE id = ?", ("y",)).fetchone()
+    assert row is not None, "transaction() must still work after an earlier failed commit=True write"
+    db.close()
+
+
+def test_transaction_still_rolls_back_cleanly_on_mid_transaction_exception(tmp_path):
+    """Guard the existing rollback behaviour: a mid-transaction() exception
+    must still roll back fully and leave the connection reusable."""
+    db = SQLiteStorage(tmp_path / "t.db")
+
+    try:
+        with db.transaction():
+            db.insert_session(Session(id="a", started_at="2026-07-15T00:00:00+00:00"), commit=False)
+            raise RuntimeError("boom")
+    except RuntimeError:
+        pass
+
+    assert db.conn.in_transaction is False
+    row = db.conn.execute("SELECT id FROM sessions WHERE id = ?", ("a",)).fetchone()
+    assert row is None, "the whole batch must roll back, not partially commit"
+
+    # Connection must still be usable for a fresh transaction.
+    with db.transaction():
+        db.insert_session(Session(id="b", started_at="2026-07-15T00:00:00+00:00"), commit=False)
+    row = db.conn.execute("SELECT id FROM sessions WHERE id = ?", ("b",)).fetchone()
+    assert row is not None
     db.close()

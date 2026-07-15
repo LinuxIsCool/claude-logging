@@ -172,6 +172,20 @@ class SQLiteStorage:
         partial-crash window where events landed but the sync cursor did not.
         """
         with self._write_lock:
+            # sqlite3 opens an implicit transaction on execute() BEFORE the
+            # statement itself runs, so a writer that raises while
+            # commit=True (constraint violation, disk error) can leave
+            # conn.in_transaction True with nobody to roll it back: the
+            # commit that would have closed it is never reached, and the
+            # except branch that would roll it back belongs to a try that
+            # was never entered. If we then issued a bare BEGIN IMMEDIATE,
+            # it would raise "cannot start a transaction within a
+            # transaction" OUTSIDE this method's own try/except below,
+            # wedging the connection permanently. Roll back any such
+            # orphaned transaction first: it is leftover state from a
+            # failed writer, never something we want to commit.
+            if self.conn.in_transaction:
+                self.conn.rollback()
             self.conn.execute("BEGIN IMMEDIATE")
             try:
                 yield
@@ -329,25 +343,36 @@ class SQLiteStorage:
     def insert_session(self, session: Session, commit: bool = True) -> None:
         """Insert or update a session."""
         with self._write_lock:
-            self.conn.execute(
-                """
-                INSERT OR REPLACE INTO sessions
-                (id, started_at, ended_at, cwd, summary, tags, event_count, total_tokens)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
-                    session.id,
-                    session.started_at,
-                    session.ended_at,
-                    session.cwd,
-                    session.summary,
-                    json.dumps(session.tags),
-                    session.event_count,
-                    session.total_tokens,
-                ),
-            )
-            if commit:
-                self.conn.commit()
+            try:
+                self.conn.execute(
+                    """
+                    INSERT OR REPLACE INTO sessions
+                    (id, started_at, ended_at, cwd, summary, tags, event_count, total_tokens)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                    (
+                        session.id,
+                        session.started_at,
+                        session.ended_at,
+                        session.cwd,
+                        session.summary,
+                        json.dumps(session.tags),
+                        session.event_count,
+                        session.total_tokens,
+                    ),
+                )
+                if commit:
+                    self.conn.commit()
+            except Exception:
+                # execute() opens an implicit transaction before the statement
+                # runs, so a raise here (e.g. a constraint violation) leaves
+                # conn.in_transaction True with nobody to roll it back. Only
+                # do this when we own the transaction (commit=True): with
+                # commit=False the caller's transaction() owns rollback, and
+                # rolling back here would silently discard its whole batch.
+                if commit:
+                    self.conn.rollback()
+                raise
 
     def insert_event(self, event: Event, commit: bool = True) -> None:
         """Insert or replace an event. FTS5 is maintained by triggers.
@@ -367,30 +392,41 @@ class SQLiteStorage:
         backfill or per-event derivation runs.
         """
         with self._write_lock:
-            self.conn.execute("DELETE FROM events WHERE id = ?", (event.id,))
-            self.conn.execute(
-                """
-                INSERT INTO events
-                (id, session_id, type, ts, agent_session_num, data, content,
-                 persona, agent_id, tool_name, tool_input_hash)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
-                    event.id,
-                    event.session_id,
-                    event.type,
-                    event.ts,
-                    event.agent_session_num,
-                    json.dumps(event.data),
-                    event.content,
-                    event.persona,
-                    event.agent_id,
-                    event.tool_name,
-                    event.tool_input_hash,
-                ),
-            )
-            if commit:
-                self.conn.commit()
+            try:
+                self.conn.execute("DELETE FROM events WHERE id = ?", (event.id,))
+                self.conn.execute(
+                    """
+                    INSERT INTO events
+                    (id, session_id, type, ts, agent_session_num, data, content,
+                     persona, agent_id, tool_name, tool_input_hash)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                    (
+                        event.id,
+                        event.session_id,
+                        event.type,
+                        event.ts,
+                        event.agent_session_num,
+                        json.dumps(event.data),
+                        event.content,
+                        event.persona,
+                        event.agent_id,
+                        event.tool_name,
+                        event.tool_input_hash,
+                    ),
+                )
+                if commit:
+                    self.conn.commit()
+            except Exception:
+                # See insert_session: execute() opens an implicit transaction
+                # before the statement runs, so a raise here leaves
+                # conn.in_transaction True with nobody to roll it back unless
+                # we do it. Only when commit=True is this our transaction to
+                # own; with commit=False the caller's transaction() owns
+                # rollback of its whole batch.
+                if commit:
+                    self.conn.rollback()
+                raise
 
     def search(self, query: str, limit: int = 20) -> list[dict]:
         """Full-text search across events."""
@@ -504,15 +540,26 @@ class SQLiteStorage:
     def update_sync_position(self, session_id: str, position: int, commit: bool = True) -> None:
         """Update sync position for a session."""
         with self._write_lock:
-            self.conn.execute(
-                """
-                INSERT OR REPLACE INTO sync_state (session_id, last_position, last_sync)
-                VALUES (?, ?, ?)
-            """,
-                (session_id, position, datetime.now(timezone.utc).isoformat()),
-            )
-            if commit:
-                self.conn.commit()
+            try:
+                self.conn.execute(
+                    """
+                    INSERT OR REPLACE INTO sync_state (session_id, last_position, last_sync)
+                    VALUES (?, ?, ?)
+                """,
+                    (session_id, position, datetime.now(timezone.utc).isoformat()),
+                )
+                if commit:
+                    self.conn.commit()
+            except Exception:
+                # See insert_session: execute() opens an implicit transaction
+                # before the statement runs, so a raise here leaves
+                # conn.in_transaction True with nobody to roll it back unless
+                # we do it. Only when commit=True is this our transaction to
+                # own; with commit=False the caller's transaction() owns
+                # rollback of its whole batch.
+                if commit:
+                    self.conn.rollback()
+                raise
 
     def get_recent_events(
         self,
