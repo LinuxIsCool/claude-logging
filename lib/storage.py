@@ -18,7 +18,18 @@ from pathlib import Path
 # Library code: never configure handlers/basicConfig here. This module is
 # imported by hook processes whose stdout/stderr are consumed by Claude Code,
 # so logging must stay silent unless the host process attaches a handler.
+#
+# The NullHandler is required, not decorative. With NO handler anywhere in
+# the logger chain (including root), an unconfigured process falls back to
+# logging.lastResort: a StreamHandler that writes WARNING+ records straight
+# to stderr. hooks/log_event.py never configures logging, so without this
+# NullHandler every logger.warning() call below leaks onto the hook
+# process's stderr, which Claude Code consumes. Attaching a NullHandler
+# here satisfies "a handler exists" and silences lastResort, while a host
+# that DOES configure logging (e.g. scripts/v2/rollup_daemon.py) still
+# receives the records via normal propagation.
 logger = logging.getLogger(__name__)
+logger.addHandler(logging.NullHandler())
 
 # Cross-platform file locking
 if sys.platform == "win32":
@@ -513,6 +524,43 @@ class SQLiteStorage:
         self.conn.close()
 
 
+def _recover_suffix_event(raw: bytes) -> tuple[dict, int] | None:
+    """Look for a valid JSON event object at the tail of a line that failed
+    to parse from offset 0.
+
+    This handles crash recovery, not routine corruption. A flock-protected
+    writer only ever emits whole newline-terminated lines WITHIN a single
+    write, but that guarantee breaks across a crash: a process killed
+    mid-append (OOM, SIGKILL, disk full) can leave a torn tail with no
+    trailing newline. Nothing ever re-appends those orphaned bytes (each
+    hook invocation is a fresh one-shot process), so the next hook's
+    complete `json + "\\n"` lands immediately after them via O_APPEND, with
+    no separator. readline() then returns
+    `<torn prefix><valid json>\\n` as one merged line.
+
+    The torn prefix was never completely written; it exists as a whole
+    record nowhere and is genuinely unrecoverable. The JSON that follows it
+    is a real, complete event and must not be discarded along with the
+    prefix.
+
+    Scans candidate object starts (byte positions of b'{"'), skipping
+    position 0 since parsing from there is what already failed, and tries
+    each in ascending order. Returns (data, offset) for the first candidate
+    that parses to a dict with an "id" key (a real event record), else
+    None.
+    """
+    for i in range(1, len(raw) - 1):
+        if raw[i : i + 2] != b'{"':
+            continue
+        try:
+            candidate = json.loads(raw[i:].decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            continue
+        if isinstance(candidate, dict) and "id" in candidate:
+            return candidate, i
+    return None
+
+
 class StorageManager:
     """Unified storage manager combining JSONL and SQLite."""
 
@@ -532,15 +580,24 @@ class StorageManager:
           - No trailing newline: the writer is mid-flight on this line. We
             stop and leave the cursor before it, so the next sync retries
             this exact byte range once the writer finishes it.
-          - Newline-terminated but json.loads/decode fails: a flock-protected
-            writer only ever emits whole newline-terminated lines, so this
-            line is genuinely corrupt, not in-flight, and can never become
-            valid. Stalling on it forever is strictly worse than skipping it
-            (JSONL stays the source of truth either way, but stalling also
-            blocks every later event in the session). We log it loudly and
-            skip past it. See self.last_sync_corrupt_lines and the logger.warning
-            call below; a future watchdog should surface these instead of
-            them sitting quietly in the log.
+          - Newline-terminated but json.loads/decode fails from offset 0:
+            the flock-protected-whole-line guarantee above holds only
+            WITHIN one write; it breaks across a crash. A process killed
+            mid-append (OOM, SIGKILL, disk full) can leave a torn tail with
+            no trailing newline. Nothing ever completes that write (each
+            hook invocation is a fresh one-shot process), so the NEXT
+            hook's complete `json + "\n"` lands immediately after the
+            orphaned bytes via O_APPEND, with no separator, and readline()
+            returns the two merged as one line. Before declaring the whole
+            line dead, we scan its tail for a recoverable JSON event (see
+            _recover_suffix_event): the torn prefix is genuinely lost
+            (never fully written, unrecoverable), but the complete event
+            that follows it is real and must not be deleted with it. If no
+            suffix recovers, the line truly is corrupt (not in-flight, can
+            never become valid) and we log it loudly and skip past it. See
+            self.last_sync_corrupt_lines and the logger.warning calls
+            below; a future watchdog should surface these instead of them
+            sitting quietly in the log.
 
         Opened in binary mode on purpose: sync_state.last_position is a BYTE
         offset (compared against stat().st_size), and text-mode tell/seek do not
@@ -571,16 +628,33 @@ class StorageManager:
                     try:
                         data = json.loads(raw.decode("utf-8"))
                     except (json.JSONDecodeError, UnicodeDecodeError):
-                        self.last_sync_corrupt_lines += 1
-                        logger.warning(
-                            "sync_session: skipping permanently corrupt line in session %s "
-                            "at byte offset %d (never valid, not in-flight; skipping so later "
-                            "events remain reachable): %r",
-                            session_id,
-                            line_start,
-                            raw[:200],
-                        )
-                    else:
+                        recovered = _recover_suffix_event(raw)
+                        if recovered is not None:
+                            data, suffix_offset = recovered
+                            self.last_sync_corrupt_lines += 1
+                            logger.warning(
+                                "sync_session: recovered event %s from a merged line in session %s "
+                                "at byte offset %d, after a %d-byte orphaned prefix (a torn, "
+                                "never-completed write from a killed process; that prefix is "
+                                "legitimately unrecoverable, the recovered event is not): %r",
+                                data.get("id"),
+                                session_id,
+                                line_start,
+                                suffix_offset,
+                                raw[:suffix_offset][:200],
+                            )
+                        else:
+                            self.last_sync_corrupt_lines += 1
+                            logger.warning(
+                                "sync_session: skipping permanently corrupt line in session %s "
+                                "at byte offset %d (never valid, not in-flight; skipping so later "
+                                "events remain reachable): %r",
+                                session_id,
+                                line_start,
+                                raw[:200],
+                            )
+                            data = None
+                    if data is not None:
                         event = Event(**{k: v for k, v in data.items() if k in _EVENT_FIELDS})
                         self.sqlite.insert_event(event)
                         events_synced += 1

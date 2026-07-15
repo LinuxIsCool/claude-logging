@@ -6,8 +6,14 @@ a false green. Assert with MATCH or 'integrity-check'.
 """
 
 import json
+import subprocess
+import sys
+from pathlib import Path
 
+import lib.storage as storage_module
 from lib.storage import Event, SQLiteStorage, StorageManager
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def _match(db, term):
@@ -145,7 +151,20 @@ def test_search_still_returns_results(tmp_path):
 
 
 def test_torn_line_is_retried_not_dropped(tmp_path):
-    """A half-written trailing line must not advance the cursor past it."""
+    """A half-written trailing line must not advance the cursor past it.
+
+    The completion step below rewrites the whole file with write_text, which
+    models an OPERATOR REPAIR (someone hand-fixing the JSONL after the fact),
+    not the normal production append path. Production never heals a torn
+    tail this way: the writer that left it torn is dead (each hook
+    invocation is a fresh one-shot process), and the next hook only ever
+    APPENDS its own complete record after the orphaned bytes, it never
+    rewrites them into a valid line. That realistic append-based scenario,
+    where the torn prefix is unrecoverable but the next hook's complete
+    event must still be recovered from the merged line, is covered
+    separately by test_merged_line_recovers_valid_event_after_torn_prefix.
+    This test only pins the torn-tail-stalls-the-cursor behaviour itself.
+    """
     sm = StorageManager(tmp_path / "logging")
     path = sm.jsonl.get_session_path("s1")
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -159,7 +178,9 @@ def test_torn_line_is_retried_not_dropped(tmp_path):
     cursor = sm.sqlite.get_sync_position("s1")
     assert cursor == len(good) + 1, "cursor must stop at the last complete line"
 
-    # Writer completes the torn line; the event must now be picked up.
+    # Operator repair (full-file rewrite), not a production append. See the
+    # docstring above and test_merged_line_recovers_valid_event_after_torn_prefix
+    # for the realistic append-based crash-recovery path.
     rest = json.dumps(
         {"id": "evt-2", "session_id": "s1", "type": "T", "ts": "2026-07-15T00:00:01+00:00", "content": "second"}
     )
@@ -271,6 +292,123 @@ def test_permanently_invalid_line_is_skipped_not_stalled(tmp_path):
     assert sm.sqlite.get_sync_position("s3") == path.stat().st_size, "cursor must reach EOF after skipping"
     assert sm.sync_session("s3") == 0, "a second sync must find nothing left to do"
     sm.close()
+
+
+def test_merged_line_recovers_valid_event_after_torn_prefix(tmp_path):
+    """A crash mid-append must not delete the NEXT hook's valid event.
+
+    Production sequence: hook process A is SIGKILLed mid-write, leaving an
+    orphaned partial JSON blob with NO trailing newline. Nothing ever
+    completes that write (each hook invocation is a fresh one-shot process).
+    The NEXT hook process appends its own complete `json + "\\n"` via
+    O_APPEND, landing immediately after the orphaned bytes with no
+    separator. readline() then returns `<torn prefix><valid json>\\n` as one
+    merged line, which fails a plain json.loads from offset 0.
+
+    The torn prefix (evt-2, never completely written) is genuinely
+    unrecoverable and its loss is correct. The complete evt-3 JSON that
+    follows it must be recovered by scanning for a `{"` suffix that parses,
+    NOT silently deleted.
+
+    This MUST FAIL against the current code (evt-3 missing from the DB).
+    """
+    sm = StorageManager(tmp_path / "logging")
+    path = sm.jsonl.get_session_path("s4")
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    good1 = json.dumps(
+        {"id": "evt-1", "session_id": "s4", "type": "T", "ts": "2026-07-15T00:00:00+00:00", "content": "first"}
+    )
+    good3 = json.dumps(
+        {"id": "evt-3", "session_id": "s4", "type": "T", "ts": "2026-07-15T00:00:02+00:00", "content": "third"}
+    )
+    # Simulate a killed write: the first ~20 bytes of a real event's JSON,
+    # no trailing newline.
+    torn_prefix = json.dumps(
+        {"id": "evt-2", "session_id": "s4", "type": "T", "ts": "2026-07-15T00:00:01+00:00", "content": "second"}
+    ).encode("utf-8")[:20]
+
+    path.write_text(good1 + "\n")
+    # Append mode, exactly like production: each hook is a fresh process
+    # doing its own O_APPEND write. A full-file overwrite would not
+    # exercise this path.
+    with open(path, "ab") as f:
+        f.write(torn_prefix)
+    with open(path, "ab") as f:
+        f.write((good3 + "\n").encode("utf-8"))
+
+    synced = sm.sync_session("s4")
+    ids = {r[0] for r in sm.sqlite.conn.execute("SELECT id FROM events").fetchall()}
+    assert "evt-1" in ids, "evt-1 must sync normally"
+    assert "evt-3" in ids, "evt-3 must be recovered from the merged line, not deleted"
+    assert synced == 2
+    assert sm.sqlite.get_sync_position("s4") == path.stat().st_size, "cursor must reach EOF"
+    sm.close()
+
+
+def test_genuinely_corrupt_line_with_no_recoverable_suffix_is_skipped(tmp_path):
+    """A newline-terminated line with no recoverable JSON at all must be
+    skipped, counted, and the cursor must advance past it so later events
+    still sync."""
+    sm = StorageManager(tmp_path / "logging")
+    path = sm.jsonl.get_session_path("s5")
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    good1 = json.dumps(
+        {"id": "evt-1", "session_id": "s5", "type": "T", "ts": "2026-07-15T00:00:00+00:00", "content": "first"}
+    )
+    good2 = json.dumps(
+        {"id": "evt-2", "session_id": "s5", "type": "T", "ts": "2026-07-15T00:00:01+00:00", "content": "second"}
+    )
+    path.write_text(good1 + "\n" + "total garbage no json here\n" + good2 + "\n")
+
+    synced = sm.sync_session("s5")
+    ids = {r[0] for r in sm.sqlite.conn.execute("SELECT id FROM events").fetchall()}
+    assert ids == {"evt-1", "evt-2"}
+    assert synced == 2
+    assert sm.last_sync_corrupt_lines == 1
+    assert sm.sqlite.get_sync_position("s5") == path.stat().st_size
+    sm.close()
+
+
+def test_corrupt_line_produces_no_stderr_or_stdout(tmp_path):
+    """lib/storage.py must never write to stdout/stderr: it is imported by
+    hook processes whose output Claude Code consumes.
+
+    Without a NullHandler, an unconfigured root logger falls back to
+    logging.lastResort, a StreamHandler to stderr at WARNING level, so
+    logger.warning(...) in sync_session leaks straight to stderr in
+    production (hooks/log_event.py never configures logging).
+
+    capsys cannot exercise this from inside pytest: pytest's own logging
+    plugin attaches a handler to the root logger for the duration of every
+    test, so the unconfigured-logging fallback (logging.lastResort) never
+    engages while pytest is running. Reproduce it the way the finding was
+    manually verified: a bare subprocess that only imports lib.storage and
+    calls sync_session, with no test harness anywhere in its process.
+
+    This MUST FAIL against the current code (warning text appears on
+    stderr).
+    """
+    session_dir = tmp_path / "logging"
+    script = (
+        "import sys\n"
+        f"sys.path.insert(0, {str(_REPO_ROOT)!r})\n"
+        "from pathlib import Path\n"
+        "from lib.storage import StorageManager\n"
+        f"sm = StorageManager(Path({str(session_dir)!r}))\n"
+        'path = sm.jsonl.get_session_path("s6")\n'
+        "path.parent.mkdir(parents=True, exist_ok=True)\n"
+        'path.write_text("not valid json\\n")\n'
+        'sm.sync_session("s6")\n'
+        "sm.close()\n"
+    )
+    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
+    assert result.returncode == 0, f"subprocess failed: {result.stderr}"
+    assert result.stderr == "", f"corrupt-line handling must not write to stderr, got: {result.stderr!r}"
+    assert result.stdout == "", f"corrupt-line handling must not write to stdout, got: {result.stdout!r}"
+    # Sanity: the module logger really is the one used (not silently swapped).
+    assert storage_module.logger.name == "lib.storage"
 
 
 def test_corrupt_line_count_is_exposed(tmp_path):
