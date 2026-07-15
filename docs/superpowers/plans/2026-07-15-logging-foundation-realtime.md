@@ -306,13 +306,24 @@ def test_changing_event_content_reindexes(tmp_path):
     db.close()
 
 
-def test_empty_content_is_not_indexed(tmp_path):
-    """Mirrors the old `if event.content:` guard: empty string must not index."""
+def test_empty_and_null_content_do_not_disturb_the_index(tmp_path):
+    """The trigger guards mirror the old `if event.content:` behaviour.
+
+    Empty and NULL content yield no searchable terms whether indexed or not, so
+    "was it indexed" is not directly observable through MATCH. What IS
+    observable, and what matters, is that the guards keep the index internally
+    consistent and leave real rows searchable. Verified separately that
+    'integrity-check' tolerates trigger-skipped rows and that 'rebuild' agrees
+    with the guards.
+    """
     db = SQLiteStorage(tmp_path / "t.db")
     db.insert_event(Event(id="evt-1", session_id="s", type="T",
                           ts="2026-07-15T00:00:00+00:00", content=""))
     db.insert_event(Event(id="evt-2", session_id="s", type="T",
                           ts="2026-07-15T00:00:00+00:00", content=None))
+    db.insert_event(Event(id="evt-3", session_id="s", type="T",
+                          ts="2026-07-15T00:00:00+00:00", content="realterm"))
+    assert _match(db, "realterm") == 1
     db.conn.execute("INSERT INTO events_fts(events_fts) VALUES('integrity-check')")
     db.close()
 
@@ -467,7 +478,7 @@ Expected: all PASS.
 - [ ] **Step 7: Run the whole suite for regressions**
 
 Run: `uv run pytest -q`
-Expected: the 5 pre-existing `TestLiveDataVerification` / `TestLiveTranscriptVerification` failures may remain (they assert against live machine state and are Phase 4's concern). No NEW failures. If `test_search.py` or `test_api.py` broke, a join was missed.
+Expected: the 4 pre-existing `TestLiveDataVerification` / `TestLiveTranscriptVerification` failures may remain (they assert against live machine state and are Phase 4's concern). No NEW failures. If `test_search.py` or `test_api.py` broke, a join was missed.
 
 - [ ] **Step 8: Commit**
 
@@ -1450,7 +1461,7 @@ them. If this ever fails, the daemon decision reopens."
 - [ ] **Step 1: Run the whole suite**
 
 Run: `uv run pytest -q`
-Expected: everything passes except the 5 pre-existing `TestLiveDataVerification` / `TestLiveTranscriptVerification` failures, which assert live machine state (empty `session_summaries`, transcript counts) and are Phase 4's job. **Confirm the count is exactly 5 and that they are the same 5.** Any other failure is a regression from this plan.
+Expected: everything passes except the 5 pre-existing `TestLiveDataVerification` / `TestLiveTranscriptVerification` failures, which assert live machine state (empty `session_summaries`, transcript counts) and are Phase 4's job. **Confirm the count is exactly 4 and that they are the same 4** (see .superpowers/sdd/progress.md for the exact list; the plan originally said 5, measured before capture was restored).
 
 - [ ] **Step 2: Verify live capture end-to-end one more time**
 
