@@ -10,6 +10,7 @@ import sqlite3
 import sys
 import threading
 from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from dataclasses import fields as dc_fields
 from datetime import datetime, timezone
@@ -146,12 +147,38 @@ class SQLiteStorage:
     def __init__(self, db_path: Path):
         self.db_path = db_path
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(str(db_path), timeout=10, check_same_thread=False)
+        # busy_timeout is the ONE source of truth for write-lock patience. The
+        # connect(timeout=) kwarg sets the same underlying handler, so passing
+        # both means whichever runs last wins. 15s: writes are frequent and
+        # short (measured ~0.02ms), so a long retry budget costs nothing and
+        # absorbs contention from concurrent hook processes.
+        self.conn = sqlite3.connect(str(db_path), check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL")
-        self.conn.execute("PRAGMA busy_timeout=5000")
-        self._write_lock = threading.Lock()
+        self.conn.execute("PRAGMA busy_timeout=15000")
+        # RLock, not Lock: transaction() takes the lock and calls methods that
+        # take it again. Note this only serialises threads WITHIN one process;
+        # cross-process safety is SQLite's WAL writer lock plus busy_timeout.
+        self._write_lock = threading.RLock()
         self._init_schema()
+
+    @contextmanager
+    def transaction(self):
+        """Run a group of writes as one transaction.
+
+        Collapses sync_session's 4+N commits into 1, which is the main lever
+        against SQLITE_BUSY: every hook invocation is a separate process
+        contending for SQLite's single WAL writer slot. Also closes the
+        partial-crash window where events landed but the sync cursor did not.
+        """
+        with self._write_lock:
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                yield
+                self.conn.commit()
+            except Exception:
+                self.conn.rollback()
+                raise
 
     def _init_schema(self):
         """Initialize database schema."""
@@ -299,7 +326,7 @@ class SQLiteStorage:
         """)
         self.conn.commit()
 
-    def insert_session(self, session: Session) -> None:
+    def insert_session(self, session: Session, commit: bool = True) -> None:
         """Insert or update a session."""
         with self._write_lock:
             self.conn.execute(
@@ -319,9 +346,10 @@ class SQLiteStorage:
                     session.total_tokens,
                 ),
             )
-            self.conn.commit()
+            if commit:
+                self.conn.commit()
 
-    def insert_event(self, event: Event) -> None:
+    def insert_event(self, event: Event, commit: bool = True) -> None:
         """Insert or replace an event. FTS5 is maintained by triggers.
 
         Uses explicit DELETE + INSERT rather than INSERT OR REPLACE. REPLACE
@@ -361,7 +389,8 @@ class SQLiteStorage:
                     event.tool_input_hash,
                 ),
             )
-            self.conn.commit()
+            if commit:
+                self.conn.commit()
 
     def search(self, query: str, limit: int = 20) -> list[dict]:
         """Full-text search across events."""
@@ -472,7 +501,7 @@ class SQLiteStorage:
         row = cursor.fetchone()
         return row[0] if row else 0
 
-    def update_sync_position(self, session_id: str, position: int) -> None:
+    def update_sync_position(self, session_id: str, position: int, commit: bool = True) -> None:
         """Update sync position for a session."""
         with self._write_lock:
             self.conn.execute(
@@ -482,7 +511,8 @@ class SQLiteStorage:
             """,
                 (session_id, position, datetime.now(timezone.utc).isoformat()),
             )
-            self.conn.commit()
+            if commit:
+                self.conn.commit()
 
     def get_recent_events(
         self,
@@ -615,58 +645,68 @@ class StorageManager:
         first_event_data = None
         good_through = last_pos
 
-        with open(path, "rb") as f:
-            f.seek(last_pos)
-            while True:
-                line_start = f.tell()
-                raw = f.readline()
-                if not raw:
-                    break  # EOF
-                if not raw.endswith(b"\n"):
-                    break  # torn tail: writer mid-flight. Retry this range next sync.
-                if raw.strip():
-                    try:
-                        data = json.loads(raw.decode("utf-8"))
-                    except (json.JSONDecodeError, UnicodeDecodeError):
-                        recovered = _recover_suffix_event(raw)
-                        if recovered is not None:
-                            data, suffix_offset = recovered
-                            self.last_sync_corrupt_lines += 1
-                            logger.warning(
-                                "sync_session: recovered event %s from a merged line in session %s "
-                                "at byte offset %d, after a %d-byte orphaned prefix (a torn, "
-                                "never-completed write from a killed process; that prefix is "
-                                "legitimately unrecoverable, the recovered event is not): %r",
-                                data.get("id"),
-                                session_id,
-                                line_start,
-                                suffix_offset,
-                                raw[:suffix_offset][:200],
-                            )
-                        else:
-                            self.last_sync_corrupt_lines += 1
-                            logger.warning(
-                                "sync_session: skipping permanently corrupt line in session %s "
-                                "at byte offset %d (never valid, not in-flight; skipping so later "
-                                "events remain reachable): %r",
-                                session_id,
-                                line_start,
-                                raw[:200],
-                            )
-                            data = None
-                    if data is not None:
-                        event = Event(**{k: v for k, v in data.items() if k in _EVENT_FIELDS})
-                        self.sqlite.insert_event(event)
-                        events_synced += 1
-                        if first_event_data is None:
-                            first_event_data = data
-                good_through = f.tell()
+        # The read loop and the two trailing writes run as one transaction:
+        # collapses the old 4+N commits (one per insert_event, plus
+        # update_sync_position, plus insert_session) into 1, and closes the
+        # partial-crash window where events land but the sync cursor does
+        # not. commit=False on every writer below defers the actual COMMIT
+        # to SQLiteStorage.transaction()'s __exit__.
+        with self.sqlite.transaction():
+            with open(path, "rb") as f:
+                f.seek(last_pos)
+                while True:
+                    line_start = f.tell()
+                    raw = f.readline()
+                    if not raw:
+                        break  # EOF
+                    if not raw.endswith(b"\n"):
+                        break  # torn tail: writer mid-flight. Retry this range next sync.
+                    if raw.strip():
+                        try:
+                            data = json.loads(raw.decode("utf-8"))
+                        except (json.JSONDecodeError, UnicodeDecodeError):
+                            recovered = _recover_suffix_event(raw)
+                            if recovered is not None:
+                                data, suffix_offset = recovered
+                                self.last_sync_corrupt_lines += 1
+                                logger.warning(
+                                    "sync_session: recovered event %s from a merged line in session %s "
+                                    "at byte offset %d, after a %d-byte orphaned prefix (a torn, "
+                                    "never-completed write from a killed process; that prefix is "
+                                    "legitimately unrecoverable, the recovered event is not): %r",
+                                    data.get("id"),
+                                    session_id,
+                                    line_start,
+                                    suffix_offset,
+                                    raw[:suffix_offset][:200],
+                                )
+                            else:
+                                self.last_sync_corrupt_lines += 1
+                                logger.warning(
+                                    "sync_session: skipping permanently corrupt line in session %s "
+                                    "at byte offset %d (never valid, not in-flight; skipping so later "
+                                    "events remain reachable): %r",
+                                    session_id,
+                                    line_start,
+                                    raw[:200],
+                                )
+                                data = None
+                        if data is not None:
+                            event = Event(**{k: v for k, v in data.items() if k in _EVENT_FIELDS})
+                            self.sqlite.insert_event(event, commit=False)
+                            events_synced += 1
+                            if first_event_data is None:
+                                first_event_data = data
+                    good_through = f.tell()
 
-        self.sqlite.update_sync_position(session_id, good_through)
-        self._update_session_from_events(session_id, first_event_data)
+            self.sqlite.update_sync_position(session_id, good_through, commit=False)
+            self._update_session_from_events(session_id, first_event_data, commit=False)
+
         return events_synced
 
-    def _update_session_from_events(self, session_id: str, first_event_data: dict | None = None) -> None:
+    def _update_session_from_events(
+        self, session_id: str, first_event_data: dict | None = None, commit: bool = True
+    ) -> None:
         """Create or update session record from events table."""
         # Get aggregated stats from events
         cursor = self.sqlite.conn.execute(
@@ -715,7 +755,7 @@ class StorageManager:
             cwd=cwd,
             event_count=row[2],
         )
-        self.sqlite.insert_session(session)
+        self.sqlite.insert_session(session, commit=commit)
 
     def sync_all(self) -> int:
         """Sync all sessions. Returns total events synced."""

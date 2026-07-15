@@ -431,3 +431,50 @@ def test_corrupt_line_count_is_exposed(tmp_path):
     sm.sync_session("dirty")
     assert sm.last_sync_corrupt_lines == 1
     sm.close()
+
+
+def test_sync_session_uses_one_transaction(tmp_path):
+    """4+N commits per sync is the main SQLITE_BUSY driver under concurrency.
+
+    sqlite3.Connection is an immutable C type on this Python: it has no
+    per-instance __dict__ and its methods cannot be monkeypatched, on the
+    instance (AttributeError: attribute 'commit' is read-only) or on the
+    class (TypeError: cannot set 'commit' attribute of immutable type).
+    set_trace_callback is the supported hook for observing every SQL
+    statement a connection actually executes, including the implicit
+    BEGIN/COMMIT sqlite3 issues around each conn.commit() call, so counting
+    literal "COMMIT" statements through it is an honest substitute for
+    counting calls to conn.commit() directly.
+    """
+    sm = StorageManager(tmp_path / "logging")
+    path = sm.jsonl.get_session_path("s3")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = [
+        json.dumps(
+            {
+                "id": f"evt-{i}",
+                "session_id": "s3",
+                "type": "T",
+                "ts": f"2026-07-15T00:00:0{i}+00:00",
+                "content": f"body {i}",
+            }
+        )
+        for i in range(5)
+    ]
+    path.write_text("\n".join(lines) + "\n")
+
+    statements = []
+    sm.sqlite.conn.set_trace_callback(lambda s: statements.append(s))
+    try:
+        assert sm.sync_session("s3") == 5
+    finally:
+        sm.sqlite.conn.set_trace_callback(None)
+    commits = sum(1 for s in statements if s.strip().upper() == "COMMIT")
+    assert commits == 1, f"expected 1 commit for the whole sync, got {commits}"
+    sm.close()
+
+
+def test_busy_timeout_is_what_the_code_claims(tmp_path):
+    db = SQLiteStorage(tmp_path / "t.db")
+    assert db.conn.execute("PRAGMA busy_timeout").fetchone()[0] == 15000
+    db.close()
