@@ -5,7 +5,9 @@ With external content that delegates to the base table and always passes. It is
 a false green. Assert with MATCH or 'integrity-check'.
 """
 
-from lib.storage import Event, SQLiteStorage
+import json
+
+from lib.storage import Event, SQLiteStorage, StorageManager
 
 
 def _match(db, term):
@@ -140,3 +142,52 @@ def test_search_still_returns_results(tmp_path):
     assert len(rows) == 1
     assert rows[0]["id"] == "evt-1"
     db.close()
+
+
+def test_torn_line_is_retried_not_dropped(tmp_path):
+    """A half-written trailing line must not advance the cursor past it."""
+    sm = StorageManager(tmp_path / "logging")
+    path = sm.jsonl.get_session_path("s1")
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    good = json.dumps(
+        {"id": "evt-1", "session_id": "s1", "type": "T", "ts": "2026-07-15T00:00:00+00:00", "content": "first"}
+    )
+    path.write_text(good + "\n" + '{"id": "evt-2", "session_id": "s1", "ty')
+
+    assert sm.sync_session("s1") == 1
+    cursor = sm.sqlite.get_sync_position("s1")
+    assert cursor == len(good) + 1, "cursor must stop at the last complete line"
+
+    # Writer completes the torn line; the event must now be picked up.
+    rest = json.dumps(
+        {"id": "evt-2", "session_id": "s1", "type": "T", "ts": "2026-07-15T00:00:01+00:00", "content": "second"}
+    )
+    path.write_text(good + "\n" + rest + "\n")
+    assert sm.sync_session("s1") == 1
+    ids = {r[0] for r in sm.sqlite.conn.execute("SELECT id FROM events").fetchall()}
+    assert ids == {"evt-1", "evt-2"}, "the torn line's event was lost forever"
+    sm.close()
+
+
+def test_cursor_is_byte_accurate_with_unicode(tmp_path):
+    """Cursor is a byte offset; the file must be read in binary mode."""
+    sm = StorageManager(tmp_path / "logging")
+    path = sm.jsonl.get_session_path("s2")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    line = json.dumps(
+        {
+            "id": "evt-1",
+            "session_id": "s2",
+            "type": "T",
+            "ts": "2026-07-15T00:00:00+00:00",
+            "content": "emoji 🔥 and accents éàü",
+        },
+        ensure_ascii=False,
+    )
+    path.write_text(line + "\n", encoding="utf-8")
+
+    assert sm.sync_session("s2") == 1
+    assert sm.sqlite.get_sync_position("s2") == path.stat().st_size
+    assert sm.sync_session("s2") == 0, "a second sync must find nothing new"
+    sm.close()

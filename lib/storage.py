@@ -523,41 +523,51 @@ class StorageManager:
         self.sqlite = SQLiteStorage(base_path / "db" / "logging.db")
 
     def sync_session(self, session_id: str) -> int:
-        """Sync a session from JSONL to SQLite. Returns events synced."""
-        last_pos = self.sqlite.get_sync_position(session_id)
-        current_pos = self.jsonl.get_last_position(session_id)
+        """Sync a session from JSONL to SQLite. Returns events synced.
 
-        if current_pos <= last_pos:
+        The cursor advances only to the end of the last COMPLETE, successfully
+        parsed line. On a torn or unparseable line we stop and leave the cursor
+        before it, so the next sync retries that exact byte range. The previous
+        code did `continue` and then advanced the cursor to the pre-read file
+        size, dropping the event from SQLite forever.
+
+        Opened in binary mode on purpose: sync_state.last_position is a BYTE
+        offset (compared against stat().st_size), and text-mode tell/seek do not
+        return byte offsets for non-ASCII content.
+        """
+        last_pos = self.sqlite.get_sync_position(session_id)
+        path = self.jsonl.get_session_path(session_id)
+        if not path.exists():
+            return 0
+        if path.stat().st_size <= last_pos:
             return 0
 
-        # Read new events
         events_synced = 0
         first_event_data = None
-        path = self.jsonl.get_session_path(session_id)
+        good_through = last_pos
 
-        with open(path) as f:
+        with open(path, "rb") as f:
             f.seek(last_pos)
-            for line in f:
-                if line.strip():
+            while True:
+                raw = f.readline()
+                if not raw:
+                    break  # EOF
+                if not raw.endswith(b"\n"):
+                    break  # torn tail: writer mid-flight. Retry this range next sync.
+                if raw.strip():
                     try:
-                        data = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue  # Skip partial lines from concurrent writes
-                    # Filter to known fields for forward-compatibility
+                        data = json.loads(raw.decode("utf-8"))
+                    except (json.JSONDecodeError, UnicodeDecodeError):
+                        break  # never advance past a line we could not parse
                     event = Event(**{k: v for k, v in data.items() if k in _EVENT_FIELDS})
                     self.sqlite.insert_event(event)
                     events_synced += 1
-
-                    # Capture first event for session metadata
                     if first_event_data is None:
                         first_event_data = data
+                good_through = f.tell()
 
-        # Update sync position
-        self.sqlite.update_sync_position(session_id, current_pos)
-
-        # Update session record with aggregated stats
+        self.sqlite.update_sync_position(session_id, good_through)
         self._update_session_from_events(session_id, first_event_data)
-
         return events_synced
 
     def _update_session_from_events(self, session_id: str, first_event_data: dict | None = None) -> None:
