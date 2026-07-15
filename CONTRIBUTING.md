@@ -32,7 +32,7 @@ Claude Code adds new hook event types over time. The plugin handles unknown type
 1. Add an emoji to the `EMOJIS` dict in `hooks/log_event.py`
 2. Add a branch in `extract_content()` to produce searchable text
 3. Add rendering logic in `generate_markdown()` if needed
-4. Register the hook in `plugin.json`
+4. Register the hook in `.claude-plugin/plugin.json`
 
 ## Running Tests
 

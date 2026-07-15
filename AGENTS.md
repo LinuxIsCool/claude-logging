@@ -62,7 +62,7 @@ Agents MAY rely on the stability of:
      SessionStart, SessionEnd, Notification, PreCompact, PostCompact,
      etc.).
 
-4. **Hooks** (registered in `plugin.json`):
+4. **Hooks** (registered in `.claude-plugin/plugin.json`):
    - All 25 hook event types route to `hooks/log_event.py -e <event>`
      which writes JSONL + SQLite atomically.
    - SessionEnd additionally runs `hooks/session_summary.py` for
