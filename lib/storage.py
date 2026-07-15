@@ -222,17 +222,21 @@ class SQLiteStorage:
                 VALUES('delete', old.rowid, old.content);
             END;
 
-            CREATE TRIGGER IF NOT EXISTS events_fts_au_del AFTER UPDATE ON events
-            WHEN old.content IS NOT NULL AND old.content != ''
+            -- ONE trigger body, not two. SQLite fires AFTER UPDATE triggers in
+            -- REVERSE creation order, so a split au_del/au_ins pair runs the
+            -- INSERT first and the DELETE last: the delete wins and the row
+            -- silently leaves the index on ANY update. integrity-check does NOT
+            -- catch this; only a rebuild comparison does.
+            -- Statements WITHIN one body run in order, so delete-then-insert is
+            -- safe. Guards move to WHERE on INSERT..SELECT to stay per-statement.
+            CREATE TRIGGER IF NOT EXISTS events_fts_au AFTER UPDATE ON events
             BEGIN
                 INSERT INTO events_fts(events_fts, rowid, content)
-                VALUES('delete', old.rowid, old.content);
-            END;
-
-            CREATE TRIGGER IF NOT EXISTS events_fts_au_ins AFTER UPDATE ON events
-            WHEN new.content IS NOT NULL AND new.content != ''
-            BEGIN
-                INSERT INTO events_fts(rowid, content) VALUES (new.rowid, new.content);
+                    SELECT 'delete', old.rowid, old.content
+                    WHERE old.content IS NOT NULL AND old.content != '';
+                INSERT INTO events_fts(rowid, content)
+                    SELECT new.rowid, new.content
+                    WHERE new.content IS NOT NULL AND new.content != '';
             END;
 
             -- Sync state for JSONL → SQLite

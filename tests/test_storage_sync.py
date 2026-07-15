@@ -68,6 +68,62 @@ def test_fts_index_integrity_after_resync(tmp_path):
     db.close()
 
 
+def test_bare_update_keeps_row_in_index(tmp_path):
+    """Regression for the split au_del/au_ins trigger pair.
+
+    SQLite fires AFTER UPDATE triggers in REVERSE creation order, so a split
+    pair runs the INSERT trigger first and the DELETE trigger last: the
+    delete wins and the row silently leaves the index on ANY bare UPDATE.
+    scripts/v2/backfill_001.py issues exactly this kind of UPDATE (setting
+    tool_name/tool_input_hash and duration_ms without touching content), so
+    this mimics that call shape directly on db.conn rather than going through
+    insert_event (which only ever does DELETE + INSERT and therefore never
+    exercises the update triggers at all).
+    """
+    db = SQLiteStorage(tmp_path / "t.db")
+    db.insert_event(
+        Event(id="evt-1", session_id="s", type="PreToolUse", ts="2026-07-15T00:00:00+00:00", content="alpha")
+    )
+    assert _match(db, "alpha") == 1
+    db.conn.execute("UPDATE events SET tool_name = ? WHERE id = ?", ("Bash", "evt-1"))
+    db.conn.commit()
+    assert _match(db, "alpha") == 1
+    db.close()
+
+
+def test_bare_update_survives_rebuild_comparison(tmp_path):
+    """'integrity-check' does NOT catch a row silently dropped from the index.
+
+    The only oracle that catches it is comparing the live index against a
+    fresh rebuild. Insert several events, issue a bare UPDATE like
+    scripts/v2/backfill_001.py does, snapshot MATCH counts, rebuild, and
+    assert the counts are unchanged. If the live index disagrees with the
+    rebuild, the triggers are wrong.
+    """
+    db = SQLiteStorage(tmp_path / "t.db")
+    for i in range(5):
+        db.insert_event(
+            Event(
+                id=f"evt-{i}", session_id="s", type="PreToolUse", ts="2026-07-15T00:00:00+00:00", content=f"payload {i}"
+            )
+        )
+    db.conn.execute("UPDATE events SET tool_name = ? WHERE id = ?", ("Bash", "evt-2"))
+    db.conn.execute("UPDATE events SET duration_ms = ? WHERE id = ?", (42, "evt-3"))
+    db.conn.commit()
+
+    db.conn.execute("INSERT INTO events_fts(events_fts) VALUES('integrity-check')")
+
+    before = _match(db, "payload")
+    assert before == 5
+
+    db.conn.execute("INSERT INTO events_fts(events_fts) VALUES('rebuild')")
+    db.conn.commit()
+
+    after = _match(db, "payload")
+    assert after == before
+    db.close()
+
+
 def test_search_still_returns_results(tmp_path):
     """The join moved from event_id to rowid; search must still work."""
     db = SQLiteStorage(tmp_path / "t.db")

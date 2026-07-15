@@ -40,9 +40,15 @@ CREATE TABLE events (
     FOREIGN KEY (session_id) REFERENCES sessions(id)
 );
 
--- FTS5 full-text index on events
+-- FTS5 full-text index on events (EXTERNAL CONTENT).
+-- Single `content` column; the FTS table reads from `events` via
+-- content=events, content_rowid=rowid. Triggers (events_fts_ai/ad/au) own
+-- the index exclusively. Application code must NEVER INSERT/UPDATE/DELETE
+-- events_fts directly.
 CREATE VIRTUAL TABLE events_fts USING fts5(
-    event_id, session_id, type, content,
+    content,
+    content=events,
+    content_rowid=rowid,
     tokenize='porter'
 );
 
