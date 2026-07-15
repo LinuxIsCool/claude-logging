@@ -192,14 +192,48 @@ class SQLiteStorage:
             CREATE INDEX IF NOT EXISTS idx_events_ts
             ON events(ts DESC);
 
-            -- FTS5 for full-text search
+            -- FTS5 full-text index over events (EXTERNAL CONTENT).
+            -- The FTS table reads its data from `events` via content_rowid=rowid
+            -- and is maintained exclusively by the triggers below.
+            --
+            -- NEVER INSERT/UPDATE/DELETE events_fts from application code. The
+            -- previous standalone table plus `INSERT OR REPLACE` silently
+            -- duplicated every re-synced row (FTS5 has no PRIMARY KEY, so
+            -- OR REPLACE degrades to a plain INSERT).
             CREATE VIRTUAL TABLE IF NOT EXISTS events_fts USING fts5(
-                event_id,
-                session_id,
-                type,
                 content,
+                content=events,
+                content_rowid=rowid,
                 tokenize='porter'
             );
+
+            -- Guards mirror the old `if event.content:` behaviour: NULL and
+            -- empty-string content were never indexed and must stay unindexed.
+            CREATE TRIGGER IF NOT EXISTS events_fts_ai AFTER INSERT ON events
+            WHEN new.content IS NOT NULL AND new.content != ''
+            BEGIN
+                INSERT INTO events_fts(rowid, content) VALUES (new.rowid, new.content);
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS events_fts_ad AFTER DELETE ON events
+            WHEN old.content IS NOT NULL AND old.content != ''
+            BEGIN
+                INSERT INTO events_fts(events_fts, rowid, content)
+                VALUES('delete', old.rowid, old.content);
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS events_fts_au_del AFTER UPDATE ON events
+            WHEN old.content IS NOT NULL AND old.content != ''
+            BEGIN
+                INSERT INTO events_fts(events_fts, rowid, content)
+                VALUES('delete', old.rowid, old.content);
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS events_fts_au_ins AFTER UPDATE ON events
+            WHEN new.content IS NOT NULL AND new.content != ''
+            BEGIN
+                INSERT INTO events_fts(rowid, content) VALUES (new.rowid, new.content);
+            END;
 
             -- Sync state for JSONL → SQLite
             CREATE TABLE IF NOT EXISTS sync_state (
@@ -274,7 +308,16 @@ class SQLiteStorage:
             self.conn.commit()
 
     def insert_event(self, event: Event) -> None:
-        """Insert event and update FTS index.
+        """Insert or replace an event. FTS5 is maintained by triggers.
+
+        Uses explicit DELETE + INSERT rather than INSERT OR REPLACE. REPLACE
+        assigns a NEW hidden rowid, which orphans the old external-content FTS
+        entry, and REPLACE does not fire AFTER DELETE triggers unless
+        recursive_triggers is ON for the connection. Measured: 3 re-syncs via
+        REPLACE produce 3 FTS hits; via DELETE + INSERT, 1. DELETE + INSERT is
+        correct regardless of per-connection pragmas.
+
+        Do NOT touch events_fts here. Triggers own it.
 
         task-508 Phase 1.4 — also writes 4 additive columns
         (persona, agent_id, tool_name, tool_input_hash) when present on the
@@ -282,10 +325,10 @@ class SQLiteStorage:
         backfill or per-event derivation runs.
         """
         with self._write_lock:
-            # Insert event
+            self.conn.execute("DELETE FROM events WHERE id = ?", (event.id,))
             self.conn.execute(
                 """
-                INSERT OR REPLACE INTO events
+                INSERT INTO events
                 (id, session_id, type, ts, agent_session_num, data, content,
                  persona, agent_id, tool_name, tool_input_hash)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -304,18 +347,6 @@ class SQLiteStorage:
                     event.tool_input_hash,
                 ),
             )
-
-            # Insert into FTS if there's content
-            if event.content:
-                self.conn.execute(
-                    """
-                    INSERT OR REPLACE INTO events_fts
-                    (event_id, session_id, type, content)
-                    VALUES (?, ?, ?, ?)
-                """,
-                    (event.id, event.session_id, event.type, event.content),
-                )
-
             self.conn.commit()
 
     def search(self, query: str, limit: int = 20) -> list[dict]:
@@ -330,7 +361,7 @@ class SQLiteStorage:
                 e.content,
                 bm25(events_fts) as score
             FROM events_fts
-            JOIN events e ON events_fts.event_id = e.id
+            JOIN events e ON e.rowid = events_fts.rowid
             WHERE events_fts MATCH ?
             ORDER BY score
             LIMIT ?

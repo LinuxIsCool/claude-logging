@@ -69,7 +69,7 @@ class SearchService:
                 e.content,
                 bm25(events_fts) as score
             FROM events_fts
-            JOIN events e ON events_fts.event_id = e.id
+            JOIN events e ON e.rowid = events_fts.rowid
             WHERE events_fts MATCH ?
         """
         params: list = [safe_query]
