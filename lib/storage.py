@@ -5,6 +5,7 @@ Provides both JSONL (source of truth) and SQLite (indexed search) storage.
 """
 
 import json
+import logging
 import sqlite3
 import sys
 import threading
@@ -13,6 +14,11 @@ from dataclasses import asdict, dataclass
 from dataclasses import fields as dc_fields
 from datetime import datetime, timezone
 from pathlib import Path
+
+# Library code: never configure handlers/basicConfig here. This module is
+# imported by hook processes whose stdout/stderr are consumed by Claude Code,
+# so logging must stay silent unless the host process attaches a handler.
+logger = logging.getLogger(__name__)
 
 # Cross-platform file locking
 if sys.platform == "win32":
@@ -121,13 +127,6 @@ class JSONLStorage:
     def list_sessions(self) -> list[str]:
         """List all session IDs."""
         return [p.stem for p in self.sessions_dir.glob("*.jsonl")]
-
-    def get_last_position(self, session_id: str) -> int:
-        """Get file size (position) for incremental sync."""
-        path = self.get_session_path(session_id)
-        if path.exists():
-            return path.stat().st_size
-        return 0
 
 
 class SQLiteStorage:
@@ -521,20 +520,33 @@ class StorageManager:
         self.base_path = base_path
         self.jsonl = JSONLStorage(base_path)
         self.sqlite = SQLiteStorage(base_path / "db" / "logging.db")
+        self.last_sync_corrupt_lines = 0
 
     def sync_session(self, session_id: str) -> int:
         """Sync a session from JSONL to SQLite. Returns events synced.
 
-        The cursor advances only to the end of the last COMPLETE, successfully
-        parsed line. On a torn or unparseable line we stop and leave the cursor
-        before it, so the next sync retries that exact byte range. The previous
-        code did `continue` and then advanced the cursor to the pre-read file
-        size, dropping the event from SQLite forever.
+        The cursor advances only to the end of the last line we can either
+        parse or definitively give up on. Two failure modes at the tail of
+        the read, handled differently:
+
+          - No trailing newline: the writer is mid-flight on this line. We
+            stop and leave the cursor before it, so the next sync retries
+            this exact byte range once the writer finishes it.
+          - Newline-terminated but json.loads/decode fails: a flock-protected
+            writer only ever emits whole newline-terminated lines, so this
+            line is genuinely corrupt, not in-flight, and can never become
+            valid. Stalling on it forever is strictly worse than skipping it
+            (JSONL stays the source of truth either way, but stalling also
+            blocks every later event in the session). We log it loudly and
+            skip past it. See self.last_sync_corrupt_lines and the logger.warning
+            call below; a future watchdog should surface these instead of
+            them sitting quietly in the log.
 
         Opened in binary mode on purpose: sync_state.last_position is a BYTE
         offset (compared against stat().st_size), and text-mode tell/seek do not
         return byte offsets for non-ASCII content.
         """
+        self.last_sync_corrupt_lines = 0
         last_pos = self.sqlite.get_sync_position(session_id)
         path = self.jsonl.get_session_path(session_id)
         if not path.exists():
@@ -549,6 +561,7 @@ class StorageManager:
         with open(path, "rb") as f:
             f.seek(last_pos)
             while True:
+                line_start = f.tell()
                 raw = f.readline()
                 if not raw:
                     break  # EOF
@@ -558,12 +571,21 @@ class StorageManager:
                     try:
                         data = json.loads(raw.decode("utf-8"))
                     except (json.JSONDecodeError, UnicodeDecodeError):
-                        break  # never advance past a line we could not parse
-                    event = Event(**{k: v for k, v in data.items() if k in _EVENT_FIELDS})
-                    self.sqlite.insert_event(event)
-                    events_synced += 1
-                    if first_event_data is None:
-                        first_event_data = data
+                        self.last_sync_corrupt_lines += 1
+                        logger.warning(
+                            "sync_session: skipping permanently corrupt line in session %s "
+                            "at byte offset %d (never valid, not in-flight; skipping so later "
+                            "events remain reachable): %r",
+                            session_id,
+                            line_start,
+                            raw[:200],
+                        )
+                    else:
+                        event = Event(**{k: v for k, v in data.items() if k in _EVENT_FIELDS})
+                        self.sqlite.insert_event(event)
+                        events_synced += 1
+                        if first_event_data is None:
+                            first_event_data = data
                 good_through = f.tell()
 
         self.sqlite.update_sync_position(session_id, good_through)
