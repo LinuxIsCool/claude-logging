@@ -392,17 +392,23 @@ In `lib/storage.py`, replace the `events_fts` block (currently lines 196-202):
                 VALUES('delete', old.rowid, old.content);
             END;
 
-            CREATE TRIGGER IF NOT EXISTS events_fts_au_del AFTER UPDATE ON events
-            WHEN old.content IS NOT NULL AND old.content != ''
+            -- ONE trigger body, not two. SQLite fires AFTER UPDATE triggers in
+            -- REVERSE creation order, so a split au_del/au_ins pair runs the
+            -- INSERT first and the DELETE last: the delete wins and the row
+            -- silently leaves the index on ANY update (measured: bare
+            -- `UPDATE events SET tool_name=...` drops MATCH from 1 to 0, and
+            -- integrity-check does NOT catch it). scripts/v2/backfill_001.py
+            -- issues exactly such bare UPDATEs.
+            -- Statements WITHIN one body run in order, so delete-then-insert is
+            -- safe. The guards move to WHERE on INSERT..SELECT to stay per-statement.
+            CREATE TRIGGER IF NOT EXISTS events_fts_au AFTER UPDATE ON events
             BEGIN
                 INSERT INTO events_fts(events_fts, rowid, content)
-                VALUES('delete', old.rowid, old.content);
-            END;
-
-            CREATE TRIGGER IF NOT EXISTS events_fts_au_ins AFTER UPDATE ON events
-            WHEN new.content IS NOT NULL AND new.content != ''
-            BEGIN
-                INSERT INTO events_fts(rowid, content) VALUES (new.rowid, new.content);
+                    SELECT 'delete', old.rowid, old.content
+                    WHERE old.content IS NOT NULL AND old.content != '';
+                INSERT INTO events_fts(rowid, content)
+                    SELECT new.rowid, new.content
+                    WHERE new.content IS NOT NULL AND new.content != '';
             END;
 ```
 
@@ -558,15 +564,16 @@ WHEN old.content IS NOT NULL AND old.content != ''
 BEGIN
     INSERT INTO events_fts(events_fts, rowid, content) VALUES('delete', old.rowid, old.content);
 END;
-CREATE TRIGGER IF NOT EXISTS events_fts_au_del AFTER UPDATE ON events
-WHEN old.content IS NOT NULL AND old.content != ''
+-- ONE body: split AFTER UPDATE triggers fire in reverse creation order and
+-- the delete would win, silently dropping the row from the index.
+CREATE TRIGGER IF NOT EXISTS events_fts_au AFTER UPDATE ON events
 BEGIN
-    INSERT INTO events_fts(events_fts, rowid, content) VALUES('delete', old.rowid, old.content);
-END;
-CREATE TRIGGER IF NOT EXISTS events_fts_au_ins AFTER UPDATE ON events
-WHEN new.content IS NOT NULL AND new.content != ''
-BEGIN
-    INSERT INTO events_fts(rowid, content) VALUES (new.rowid, new.content);
+    INSERT INTO events_fts(events_fts, rowid, content)
+        SELECT 'delete', old.rowid, old.content
+        WHERE old.content IS NOT NULL AND old.content != '';
+    INSERT INTO events_fts(rowid, content)
+        SELECT new.rowid, new.content
+        WHERE new.content IS NOT NULL AND new.content != '';
 END;
 """
 
