@@ -506,6 +506,17 @@ not fire AFTER DELETE triggers without recursive_triggers=ON."
 
 ### Task 4: Migrate the live databases
 
+> **LIVE SYSTEM HAZARD, learned the hard way.** The plugin runs from this repo, so
+> Task 3's `_init_schema` reaches the live DB the moment it lands: every hook
+> invocation opens a connection and runs it. On an unmigrated DB that creates
+> external-content triggers over the old standalone `events_fts`, and every sync
+> then fails with `SQL logic error` (observed in errors.log; the index froze while
+> JSONL kept capturing). No data is lost, because `insert_event` raises before
+> `update_sync_position` advances the cursor, so sync replays after migration.
+> **Run this task immediately after Task 3, not later.** Verify errors.log is quiet
+> and `MAX(ts)` is current before moving on.
+
+
 **Files:**
 - Create: `scripts/migrate_002_events_fts_external_content.py`
 
@@ -605,7 +616,18 @@ def migrate(db_path: Path, dry_run: bool) -> str:
         backup = db_path.with_suffix(db_path.suffix + ".pre-migrate002")
         shutil.copy2(db_path, backup)
 
-        conn.executescript("DROP TABLE events_fts;" + FTS_DDL)
+        conn.executescript(
+            # Drop every events_fts trigger first. CREATE TRIGGER IF NOT EXISTS
+            # will NOT replace stale ones (e.g. the interim split au_del/au_ins
+            # pair), and leftover triggers referencing the old table shape raise
+            # "SQL logic error" on every insert.
+            "DROP TRIGGER IF EXISTS events_fts_ai;"
+            "DROP TRIGGER IF EXISTS events_fts_ad;"
+            "DROP TRIGGER IF EXISTS events_fts_au;"
+            "DROP TRIGGER IF EXISTS events_fts_au_del;"
+            "DROP TRIGGER IF EXISTS events_fts_au_ins;"
+            "DROP TABLE events_fts;" + FTS_DDL
+        )
         conn.execute("INSERT INTO events_fts(events_fts) VALUES('rebuild')")
         conn.execute("INSERT INTO events_fts(events_fts) VALUES('integrity-check')")
         conn.commit()
