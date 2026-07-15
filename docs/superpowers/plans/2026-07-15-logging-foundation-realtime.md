@@ -1143,6 +1143,9 @@ In `hooks/log_event.py`, replace the block at lines 950-977:
 - [ ] **Step 2: Verify capture end-to-end with a real session**
 
 ```bash
+# cd first: the store directory is derived from cwd (path-encoded project
+# slug), so running from the plugin dir writes to a DIFFERENT store.
+cd /home/shawn
 DB=~/.claude/local/logging/-home-shawn/db/logging.db
 BEFORE=$(sqlite3 $DB "SELECT COUNT(*) FROM events;")
 claude -p "reply with exactly: pong" --model claude-haiku-4-5-20251001 < /dev/null
@@ -1466,6 +1469,7 @@ Expected: everything passes except the 5 pre-existing `TestLiveDataVerification`
 - [ ] **Step 2: Verify live capture end-to-end one more time**
 
 ```bash
+cd /home/shawn   # store dir is derived from cwd; see Task 8
 DB=~/.claude/local/logging/-home-shawn/db/logging.db
 BEFORE=$(sqlite3 $DB "SELECT COUNT(*) FROM events;")
 claude -p "reply with exactly: verified" --model claude-haiku-4-5-20251001 < /dev/null
