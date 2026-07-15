@@ -34,6 +34,9 @@ jobs:
       - name: Test
         run: uv run pytest tests/ -v --tb=short -x -k "not Live"
 
+      - name: Plugin registration contract
+        run: uv run pytest tests/test_plugin_registration.py -v
+
   windows:
     runs-on: windows-latest
     steps:
