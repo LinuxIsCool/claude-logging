@@ -976,6 +976,40 @@ def process_event(event_type: str, stdin_data: dict) -> dict:
         except Exception as e:
             log_error(e, f"SQLiteSyncAll:{event_type}")
 
+    # SessionStart: surface a failing or dead completeness watchdog.
+    #
+    # sync_all() above only proves SQLite matches our own archive; it cannot
+    # see that capture itself is dead, which is how a 15-day outage went
+    # unnoticed. The doctor compares against Claude Code's transcripts, and
+    # this reports its verdict. Silent when healthy, so it only ever costs
+    # attention when something is actually wrong. Never raises: a broken
+    # health check must not take capture down with it.
+    if event_type == "SessionStart":
+        with contextlib.suppress(Exception):
+            from lib.doctor import DOCTOR_STALE_HOURS, heartbeat_age_hours
+
+            logging_root = storage_path.parent
+            age = heartbeat_age_hours(logging_root)
+            status_file = logging_root / "_health" / "doctor.json"
+
+            if age > DOCTOR_STALE_HOURS:
+                when = "has never run" if age == float("inf") else f"last ran {age:.0f}h ago"
+                print(
+                    f"[claude-logging] completeness watchdog {when} "
+                    f"(threshold {DOCTOR_STALE_HOURS}h). Check: "
+                    f"systemctl --user status claude-logging-doctor.timer",
+                    file=sys.stderr,
+                )
+            else:
+                payload = json.loads(status_file.read_text())
+                if not payload.get("healthy", True):
+                    missing = payload.get("total_missing", 0)
+                    print(
+                        f"[claude-logging] {missing} session(s) exist on disk but were "
+                        f"never captured. Recover: uv run scripts/logging_doctor.py --repair",
+                        file=sys.stderr,
+                    )
+
     # PostCompact: capture session summary and extract entities
     if event_type == "PostCompact" and isinstance(data, dict):
         summary = data.get("summary", "")

@@ -17,6 +17,7 @@ Uses REAL data from the live logging.db and transcript files where available.
 
 import json
 import os
+import re
 import sqlite3
 import sys
 import time
@@ -294,10 +295,30 @@ class TestLiveTranscriptVerification:
         assert result.total_chars > 0
         assert result.user_message_count > 0
 
-    def test_transcript_count_matches_expectation(self):
-        """Should have 200+ transcripts based on known system state."""
-        count = sum(1 for _ in iter_transcripts(str(Path.home())))
-        assert count > 100, f"Expected 200+ transcripts, got {count}"
+    def test_transcript_iteration_finds_what_is_on_disk(self):
+        """iter_transcripts must discover every transcript actually present.
+
+        This previously asserted a hardcoded `count > 100` snapshot of one
+        machine's state. Transcripts expire under settings.cleanupPeriodDays,
+        so that assertion was guaranteed to rot, and it did: it failed at 88
+        transcripts while the code under test was working perfectly. A test
+        that fails for reasons unrelated to the code is worse than no test,
+        because it trains you to ignore a red suite.
+
+        The real invariant is relative: discovery must not miss files.
+        """
+        # Claude Code leaves orphaned stubs ("<uuid>.orphaned-<n>-<hash>.jsonl")
+        # holding no conversation. iter_transcripts filters them, and so does
+        # the completeness doctor, so they are not part of the invariant.
+        session_id = re.compile(r"^[0-9a-f-]{36}$")
+        on_disk = {
+            p.stem for p in LIVE_TRANSCRIPTS.glob("*.jsonl") if session_id.match(p.stem)
+        }
+        if not on_disk:
+            pytest.skip("No transcripts on disk")
+
+        found = {Path(t).stem for t in iter_transcripts(str(Path.home()))}
+        assert on_disk <= found, f"iter_transcripts missed {on_disk - found}"
 
 
 # ── Integration: Heartbeat files exist in real system ─────────────────
