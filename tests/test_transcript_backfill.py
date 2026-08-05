@@ -223,6 +223,27 @@ class TestBackfillProject:
         assert report.sessions_added == 0
         assert report.skipped_live == 1
 
+    def test_reported_count_equals_rows_written(self, tmp_path, store):
+        """Claude Code sometimes writes a transcript line twice. The report must
+        count rows actually inserted, not events generated, or the number cannot
+        be reconciled against the database."""
+        tdir = tmp_path / "projects"
+        tdir.mkdir()
+        sid = "dup-session"
+        line = _line(
+            type="user",
+            uuid="u-dup",
+            timestamp="2026-07-01T10:00:00.000Z",
+            message={"role": "user", "content": "duplicated line"},
+        )
+        (tdir / f"{sid}.jsonl").write_text(line + "\n" + line + "\n")
+
+        report = backfill_project(store, tdir)
+        actual = store.sqlite.conn.execute(
+            "SELECT COUNT(*) FROM events WHERE session_id=?", (sid,)
+        ).fetchone()[0]
+        assert report.events_added == actual == 1
+
     def test_dry_run_writes_nothing(self, transcript, store):
         d, sid = transcript
         report = backfill_project(store, d, dry_run=True)

@@ -189,6 +189,26 @@ def events_from_transcript(path: Path, session_id: str) -> list[Event]:
     return events
 
 
+def _dedupe(events: list[Event]) -> list[Event]:
+    """Collapse events that share an id.
+
+    Claude Code sometimes writes the same transcript line twice (observed: one
+    duplicated tool_result, identical uuid, ts and content), and some lines
+    carry no uuid at all, in which case the id falls back to a hash of the raw
+    line so byte-identical lines also collide. Both cases are genuine
+    duplicates and collapsing them is correct.
+
+    Doing it here rather than letting insert_event's DELETE+INSERT absorb it
+    keeps the reported count equal to rows actually written. A backfill report
+    that overstates by even one is a report you cannot reconcile against the
+    database, and reconciling counts is the whole point of this exercise.
+    """
+    seen: dict[str, Event] = {}
+    for event in events:
+        seen.setdefault(event.id, event)
+    return list(seen.values())
+
+
 def _session_meta(path: Path, session_id: str, events: list[Event]) -> Session:
     cwd = None
     with open(path, encoding="utf-8", errors="replace") as fh:
@@ -240,7 +260,7 @@ def backfill_project(
             continue
 
         path = transcript_dir / f"{session_id}.jsonl"
-        events = events_from_transcript(path, session_id)
+        events = _dedupe(events_from_transcript(path, session_id))
         if not events:
             continue
 
