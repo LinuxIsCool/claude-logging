@@ -31,6 +31,12 @@ LOGGING = Path.home() / ".claude" / "local" / "logging"
 WINDOWS = {"5h": timedelta(hours=5), "7d": timedelta(days=7), "30d": timedelta(days=30)}
 
 
+def default_slug() -> str:
+    """Project slug for the current working tree."""
+    root = os.environ.get("CLAUDE_PROJECT_DIR", os.getcwd())
+    return root.replace("/", "-")
+
+
 def project_slugs(only: str | None = None):
     for d in sorted(PROJECTS.iterdir()):
         if d.is_dir() and (only is None or d.name == only):
@@ -135,7 +141,7 @@ def main():
     u.set_defaults(fn=cmd_usage)
 
     r = sub.add_parser("render")
-    r.add_argument("--project", default="-home-shawn")
+    r.add_argument("--project", default=default_slug())
     r.add_argument("--limit", type=int, default=500)
     r.add_argument("--out", default=DEFAULT_FEED)
     r.set_defaults(fn=cmd_render)

@@ -1,9 +1,8 @@
 """Render the reverse-chronological prompt feed from logging.db.
 
-Newest at top, the ordering Shawn uses everywhere: roadmap above, live state in
-the middle, history receding as you scroll. The file is generated, never
-hand-maintained, so it can always be rebuilt from the transcripts rather than
-drifting away from them.
+Newest at top: roadmap above, live state in the middle, history receding as you
+scroll. The file is generated, never hand-maintained, so it can always be
+rebuilt from the transcripts rather than drifting away from them.
 """
 
 from __future__ import annotations
@@ -14,7 +13,11 @@ from pathlib import Path
 
 from lib.token_meter import open_db
 
-DEFAULT_FEED = "~/legion-brain/local/prompts/prompt-log.md"
+# Set CLAUDE_PROMPT_LOG to render somewhere else. The default lives under the
+# plugin's own data root; symlink it if you want the feed inside a notes repo.
+DEFAULT_FEED = os.environ.get(
+    "CLAUDE_PROMPT_LOG", "~/.claude/local/logging/prompt-log.md"
+)
 
 _HEADER = """# Prompt Log
 

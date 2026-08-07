@@ -105,7 +105,7 @@ def open_db(storage_path: Path) -> sqlite3.Connection:
     return conn
 
 
-# Not everything with a promptId is something Shawn said. Slash-command
+# Not everything with a promptId is user input. Slash-command
 # expansions, hook injections, and the caveat blocks Claude Code wraps around
 # local command output all arrive as user turns. They are recorded (nothing is
 # silently dropped) but flagged so the feed can exclude them.
@@ -138,7 +138,7 @@ def weigh(inp: int, cw: int, cr: int, out: int) -> int:
 
 
 # Filler and repair markers that survive speech-to-text but almost never appear
-# in typed input. Shawn's dictation reliably carries these.
+# in typed input. Dictated prose reliably carries them.
 _DISFLUENCY = re.compile(
     r"\b(um|uh|erm|uhh|hmm)\b|\b(\w+)[ ,]+\2\b|\.\.\.\s*of\b",
     re.IGNORECASE,
@@ -151,8 +151,7 @@ def looks_dictated(text: str) -> bool:
     `promptSource` is "typed" for dictated input too, because speech-to-text
     lands as keystrokes. So the only signal is the shape of the prose.
 
-    TODO(shawn): tune this. Candidate signals, in rough order of how much they
-    seem to discriminate on your actual input:
+    TODO: tune per user. Candidate signals, roughly by how much they discriminate:
       - filler tokens (um, uh, erm) — near-zero false positives, but you edit
         some of them out, so recall is the weak side
       - immediate word repetition ("the the", "in my ear ear")
