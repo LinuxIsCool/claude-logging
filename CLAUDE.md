@@ -86,6 +86,66 @@ CREATE TABLE session_summaries (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (session_id) REFERENCES sessions(id)
 );
+
+-- Token accounting (lib/token_meter.py). Hooks never receive token counts, so
+-- these are reconstructed from the transcript named by `transcript_path`.
+CREATE TABLE turns (
+    request_id TEXT PRIMARY KEY,   -- makes re-scanning idempotent
+    session_id TEXT NOT NULL,
+    prompt_id TEXT,                -- positional attribution, see below
+    ts TIMESTAMP NOT NULL,
+    model TEXT,
+    is_sidechain INTEGER DEFAULT 0,
+    input_tokens INTEGER DEFAULT 0,
+    cache_write INTEGER DEFAULT 0,
+    cache_read INTEGER DEFAULT 0,
+    output_tokens INTEGER DEFAULT 0,
+    weighted INTEGER DEFAULT 0,    -- input-token-equivalents
+    service_tier TEXT,
+    stop_reason TEXT
+);
+
+CREATE TABLE prompts (
+    prompt_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    ts TIMESTAMP NOT NULL,
+    seq INTEGER,                   -- index within session
+    text TEXT,
+    chars INTEGER, words INTEGER,
+    dictated INTEGER DEFAULT 0,    -- speech-to-text heuristic
+    gap_seconds INTEGER,           -- think time since previous prompt
+    cwd TEXT, git_branch TEXT, prompt_source TEXT,
+    permission_mode TEXT, effort TEXT, model TEXT
+);
+
+CREATE TABLE meter_state (         -- resume offsets, keyed per FILE not session
+    scan_key TEXT PRIMARY KEY,     -- absolute transcript path
+    session_id TEXT,
+    offset INTEGER DEFAULT 0,
+    last_prompt TEXT,
+    updated_at TIMESTAMP
+);
+```
+
+### Token accounting — three things that will bite you
+
+1. **Assistant turns carry no `promptId`.** Only user-prompt lines do. Attribution
+   is positional: a forward scan carries the most recent prompt id.
+2. **Subagent spend is in separate files.** `<slug>/<session-id>/subagents/agent-*.jsonl`,
+   which the hook payload never names. Scanning only the main transcript misses
+   roughly half the token spend. Those files have no `isSidechain` flag and no
+   `promptId`; both are supplied by the caller from the file's location and by
+   timestamp lookup against the parent session's prompts.
+3. **`sessions.total_tokens` was dark until 2026-08-06.** The column shipped in
+   v1 and no code ever wrote it. `_refresh_session_tokens()` now populates it.
+
+```bash
+# rebuild everything from transcripts (idempotent)
+python3 scripts/prompt_log.py backfill
+# rolling-window totals across all projects
+python3 scripts/prompt_log.py usage
+# regenerate the reverse-chronological prompt feed
+python3 scripts/prompt_log.py render
 ```
 
 ### SQLite: `{path-encoded}/db/embeddings.db`

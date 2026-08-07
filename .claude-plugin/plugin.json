@@ -48,6 +48,11 @@
           {
             "type": "command",
             "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/log_event.py -e UserPromptSubmit"
+          },
+          {
+            "type": "command",
+            "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/token_meter.py -e UserPromptSubmit",
+            "timeout": 10
           }
         ]
       }
@@ -141,6 +146,11 @@
           {
             "type": "command",
             "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/log_event.py -e SubagentStop"
+          },
+          {
+            "type": "command",
+            "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/token_meter.py -e SubagentStop",
+            "timeout": 20
           }
         ]
       }
@@ -186,6 +196,11 @@
             "type": "command",
             "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/session_summary.py",
             "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/token_meter.py -e Stop",
+            "timeout": 20
           }
         ]
       }
