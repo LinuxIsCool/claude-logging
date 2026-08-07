@@ -23,7 +23,8 @@ _PLUGIN_ROOT = str(Path(__file__).resolve().parent.parent)
 if _PLUGIN_ROOT not in sys.path:
     sys.path.insert(0, _PLUGIN_ROOT)
 
-from lib.token_meter import open_db, scan_transcript  # noqa: E402
+from lib.prompt_feed import DEFAULT_FEED, render_feed  # noqa: E402
+from lib.token_meter import classify_prompts, open_db, scan_transcript  # noqa: E402
 
 PROJECTS = Path.home() / ".claude" / "projects"
 LOGGING = Path.home() / ".claude" / "local" / "logging"
@@ -47,6 +48,7 @@ def cmd_backfill(args):
             n += scan_transcript(conn, tp.stem, str(tp))
         for tp in sorted((PROJECTS / slug).glob("*/subagents/*.jsonl")):
             n += scan_transcript(conn, tp.parent.parent.name, str(tp), sidechain=True)
+        classify_prompts(conn)
         conn.close()
         if n:
             print(f"{slug:<50} {n:>8,} turns")
@@ -115,72 +117,8 @@ def cmd_usage(args):
 
 
 def cmd_render(args):
-    slug = args.project
-    conn = open_db(LOGGING / slug)
-    prompts = conn.execute(
-        """SELECT p.prompt_id, p.session_id, p.ts, p.seq, p.text, p.words, p.dictated,
-                  p.gap_seconds, p.git_branch, p.effort, p.model,
-                  COALESCE(SUM(CASE WHEN t.is_sidechain=0 THEN t.weighted END), 0),
-                  COALESCE(SUM(CASE WHEN t.is_sidechain=1 THEN t.weighted END), 0),
-                  COUNT(t.request_id)
-           FROM prompts p LEFT JOIN turns t ON t.prompt_id = p.prompt_id
-           WHERE p.text IS NOT NULL AND p.text != ''
-           GROUP BY p.prompt_id
-           ORDER BY p.ts DESC
-           LIMIT ?""",
-        (args.limit,),
-    ).fetchall()
-    conn.close()
-
-    lines = [
-        "# Prompt Log",
-        "",
-        f"Generated from logging.db for `{slug}`. Reverse chronological: newest at top.",
-        "",
-        "Entry format: `## YYYY-MM-DD HH:MM TZ · <session>` where `<session>` is the first 8 chars",
-        "of the Claude Code session UUID, then an italic metadata line, then the prompt verbatim.",
-        "The session tag lets one log absorb parallel instances without losing which thread a prompt",
-        "belongs to. ITE = input-token-equivalents (cache reads 0.1x, writes 1.25x, output 5x).",
-        "",
-        "Regenerate with `prompt_log.py render`. Do not hand-edit.",
-        "",
-    ]
-    for (pid, sid, ts, seq, text, words, dictated, gap, branch, effort, model,
-         w_main, w_sub, nturns) in prompts:
-        dt = ts
-        try:
-            dt = datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone()
-            dt = dt.strftime("%Y-%m-%d %H:%M %Z")
-        except Exception:
-            pass
-        meta = [f"prompt {seq}"]
-        if model:
-            meta.append(model.replace("claude-", ""))
-        if effort:
-            meta.append(f"effort {effort}")
-        if branch and branch != "HEAD":
-            meta.append(branch)
-        if gap is not None:
-            meta.append(f"gap {gap // 60}m" if gap >= 60 else f"gap {gap}s")
-        meta.append(f"{words} words{' (dictated)' if dictated else ''}")
-        cost = f"{nturns} turns / {w_main:,} ITE"
-        if w_sub:
-            cost += f" + {w_sub:,} ITE subagents"
-        lines += [
-            "---",
-            "",
-            f"## {dt} · {sid[:8]}",
-            "",
-            f"*{' · '.join(meta)} · {cost}*",
-            "",
-            text.strip(),
-            "",
-        ]
-
-    dest = Path(os.path.expanduser(args.out))
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text("\n".join(lines) + "\n")
-    print(f"wrote {len(prompts)} prompts -> {dest}")
+    n = render_feed(args.project, out=args.out, limit=args.limit)
+    print(f"wrote {n} prompts -> {Path(args.out).expanduser()}")
 
 
 def main():
@@ -198,10 +136,8 @@ def main():
 
     r = sub.add_parser("render")
     r.add_argument("--project", default="-home-shawn")
-    r.add_argument("--limit", type=int, default=200)
-    # Defaults to a generated sibling, not the live hand-maintained log. Verify
-    # the generated feed matches, then cut over. Make before break.
-    r.add_argument("--out", default="~/legion-brain/local/prompts/prompt-log.generated.md")
+    r.add_argument("--limit", type=int, default=500)
+    r.add_argument("--out", default=DEFAULT_FEED)
     r.set_defaults(fn=cmd_render)
 
     args = ap.parse_args()

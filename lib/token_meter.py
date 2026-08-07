@@ -74,6 +74,7 @@ CREATE TABLE IF NOT EXISTS prompts (
 );
 CREATE INDEX IF NOT EXISTS idx_prompts_session ON prompts(session_id);
 CREATE INDEX IF NOT EXISTS idx_prompts_ts      ON prompts(ts);
+CREATE INDEX IF NOT EXISTS idx_prompts_text    ON prompts(session_id, text);
 
 -- Keyed by transcript file, not by session: a session owns its main transcript
 -- plus one file per subagent under <session-id>/subagents/.
@@ -94,8 +95,42 @@ def open_db(storage_path: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(str(db_path), timeout=10.0)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.executescript(SCHEMA)
+    # Additive migrations. Older DBs predate these columns.
+    for col, decl in (("is_synthetic", "INTEGER DEFAULT 0"),):
+        try:
+            conn.execute(f"ALTER TABLE prompts ADD COLUMN {col} {decl}")
+        except sqlite3.OperationalError:
+            pass  # already present
     conn.commit()
     return conn
+
+
+# Not everything with a promptId is something Shawn said. Slash-command
+# expansions, hook injections, and the caveat blocks Claude Code wraps around
+# local command output all arrive as user turns. They are recorded (nothing is
+# silently dropped) but flagged so the feed can exclude them.
+_SYNTHETIC = re.compile(
+    r"^\s*<(local-command-caveat|command-message|command-name|command-args"
+    r"|command-stdout|command-contents|user-prompt-submit-hook|system-reminder)\b",
+    re.IGNORECASE,
+)
+
+
+def is_synthetic(text: str) -> bool:
+    return bool(_SYNTHETIC.match(text or ""))
+
+
+def classify_prompts(conn: sqlite3.Connection) -> int:
+    """Recompute is_synthetic over every stored prompt. Idempotent."""
+    rows = conn.execute("SELECT prompt_id, text, is_synthetic FROM prompts").fetchall()
+    changed = 0
+    for pid, text, cur in rows:
+        want = 1 if is_synthetic(text) else 0
+        if want != (cur or 0):
+            conn.execute("UPDATE prompts SET is_synthetic = ? WHERE prompt_id = ?", (want, pid))
+            changed += 1
+    conn.commit()
+    return changed
 
 
 def weigh(inp: int, cw: int, cr: int, out: int) -> int:
@@ -258,6 +293,32 @@ def scan_transcript(
     return written
 
 
+def _seq_and_gap(conn: sqlite3.Connection, session_id: str, ts: str, synth: bool):
+    """Next sequence number, and think-time since the previous real prompt.
+
+    `seq` counts every prompt so it stays a faithful transcript position. `gap`
+    measures against the previous non-synthetic prompt, because a slash-command
+    expansion firing between two of your messages is not thinking time.
+    """
+    seq_row = conn.execute(
+        "SELECT MAX(seq) FROM prompts WHERE session_id = ?", (session_id,)
+    ).fetchone()
+    seq = (seq_row[0] or 0) + 1
+    if synth:
+        return seq, None
+    prev = conn.execute(
+        "SELECT ts FROM prompts WHERE session_id = ? AND COALESCE(is_synthetic,0) = 0"
+        " ORDER BY ts DESC LIMIT 1",
+        (session_id,),
+    ).fetchone()
+    gap = None
+    if prev:
+        a, b = _parse_ts(prev[0]), _parse_ts(ts)
+        if a and b:
+            gap = int((b - a).total_seconds())
+    return seq, gap
+
+
 def _prompt_at(conn: sqlite3.Connection, session_id: str, ts: str) -> str | None:
     """The parent session's most recent prompt at time `ts`.
 
@@ -284,22 +345,13 @@ def _prompt_from_transcript(conn: sqlite3.Connection, session_id: str, d: dict) 
     if not isinstance(content, str):
         return
     ts = d.get("timestamp") or ""
-
-    prev = conn.execute(
-        "SELECT ts, seq FROM prompts WHERE session_id = ? ORDER BY seq DESC LIMIT 1",
-        (session_id,),
-    ).fetchone()
-    gap, seq = None, 1
-    if prev:
-        seq = (prev[1] or 0) + 1
-        a, b = _parse_ts(prev[0]), _parse_ts(ts)
-        if a and b:
-            gap = int((b - a).total_seconds())
+    synth = is_synthetic(content)
+    seq, gap = _seq_and_gap(conn, session_id, ts, synth)
 
     conn.execute(
         """INSERT INTO prompts (prompt_id, session_id, ts, seq, text, chars, words,
-               dictated, gap_seconds, cwd, git_branch, prompt_source)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+               dictated, gap_seconds, cwd, git_branch, prompt_source, is_synthetic)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
            ON CONFLICT(prompt_id) DO NOTHING""",
         (
             d["promptId"],
@@ -314,6 +366,7 @@ def _prompt_from_transcript(conn: sqlite3.Connection, session_id: str, d: dict) 
             d.get("cwd"),
             d.get("gitBranch"),
             d.get("promptSource"),
+            1 if synth else 0,
         ),
     )
 
@@ -337,17 +390,8 @@ def record_prompt(conn: sqlite3.Connection, payload: dict, git_branch: str | Non
 
     text = payload.get("prompt") or ""
     now = datetime.now(timezone.utc)
-
-    prev = conn.execute(
-        "SELECT ts, seq FROM prompts WHERE session_id = ? ORDER BY seq DESC LIMIT 1",
-        (session_id,),
-    ).fetchone()
-    gap, seq = None, 1
-    if prev:
-        seq = (prev[1] or 0) + 1
-        prev_ts = _parse_ts(prev[0])
-        if prev_ts:
-            gap = int((now - prev_ts).total_seconds())
+    synth = is_synthetic(text)
+    seq, gap = _seq_and_gap(conn, session_id, now.isoformat(), synth)
 
     effort = payload.get("effort")
     if isinstance(effort, dict):
@@ -356,8 +400,8 @@ def record_prompt(conn: sqlite3.Connection, payload: dict, git_branch: str | Non
     conn.execute(
         """INSERT INTO prompts (prompt_id, session_id, ts, seq, text, chars, words,
                dictated, gap_seconds, cwd, git_branch, prompt_source,
-               permission_mode, effort, model)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+               permission_mode, effort, model, is_synthetic)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
            ON CONFLICT(prompt_id) DO NOTHING""",
         (
             prompt_id,
@@ -375,6 +419,7 @@ def record_prompt(conn: sqlite3.Connection, payload: dict, git_branch: str | Non
             payload.get("permission_mode"),
             effort,
             payload.get("model"),
+            1 if synth else 0,
         ),
     )
     conn.commit()

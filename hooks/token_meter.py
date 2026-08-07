@@ -22,7 +22,13 @@ if _PLUGIN_ROOT not in sys.path:
     sys.path.insert(0, _PLUGIN_ROOT)
 
 from lib import encode_project_path  # noqa: E402
-from lib.token_meter import open_db, record_prompt, scan_transcript  # noqa: E402
+from lib.prompt_feed import render_feed  # noqa: E402
+from lib.token_meter import (  # noqa: E402
+    classify_prompts,
+    open_db,
+    record_prompt,
+    scan_transcript,
+)
 
 
 def storage_path(cwd: str | None) -> Path:
@@ -73,6 +79,15 @@ def main() -> int:
             if main.name.endswith(".jsonl"):
                 for sub in sorted(main.parent.glob(f"{main.stem}/subagents/*.jsonl")):
                     scan_transcript(conn, sid, str(sub), sidechain=True)
+            classify_prompts(conn)
+            conn.close()
+            conn = None
+            # Refresh the feed, but only where one already exists. A machine
+            # that never set one up stays untouched.
+            slug = encode_project_path(
+                os.environ.get("CLAUDE_PROJECT_DIR") or payload.get("cwd") or os.getcwd()
+            )
+            render_feed(slug, only_if_exists=True)
     except Exception as exc:  # never break the session over accounting
         if os.environ.get("CLAUDE_LOGGING_DEBUG"):
             print(f"token_meter: {exc}", file=sys.stderr)
