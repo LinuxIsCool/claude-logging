@@ -112,11 +112,64 @@ CREATE TABLE prompts (
     seq INTEGER,                   -- index within session
     text TEXT,
     chars INTEGER, words INTEGER,
-    dictated INTEGER DEFAULT 0,    -- speech-to-text heuristic
+    dictated INTEGER,              -- RETIRED, always NULL. See below.
     gap_seconds INTEGER,           -- think time since previous prompt
     cwd TEXT, git_branch TEXT, prompt_source TEXT,
-    permission_mode TEXT, effort TEXT, model TEXT
+    permission_mode TEXT, effort TEXT, model TEXT,
+    -- capture boundary (legion_capture), added 2026-08-07
+    uuid7 TEXT,                    -- RFC 9562 v7, derived: rebuild-stable
+    kind TEXT,                     -- typed|queued|expansion|scheduled|injection|...
+    discriminator TEXT,            -- declared|channel|config|undeclared
+    capture_source TEXT,           -- UserPromptSubmit | transcript | backfill
+    captured_at TIMESTAMP
 );
+```
+
+### The capture boundary — read this before adding a writer
+
+`uuid7` and `kind` are enforced by SQLite triggers (`legion_capture.guard`).
+An INSERT or UPDATE leaving either NULL **raises**. There are two writers today
+and both stamp; the guard is for the third one somebody adds later, because a
+convention holds only until the next capture site.
+
+Use `lib/capture.py`, which imports the shared `legion_capture` package:
+
+```python
+from lib import capture
+capture.require()
+stamped = capture.stamp({}, kind=capture.Kind.TYPED, source="UserPromptSubmit",
+                        discriminator=capture.Discriminator.CHANNEL,
+                        ts=now, key_parts=(session_id, prompt_id))
+```
+
+**Three columns are dark by construction, not by bug.** Measured across 2,149
+real `UserPromptSubmit` payloads: `model` appears in 0 of them, and `effort`
+and `prompt_source` in none. They stay NULL rather than being defaulted.
+`prompt_source` previously defaulted to `"typed"`, which is a fabricated
+declaration indistinguishable from a real one.
+
+**`dictated` is retired and always NULL.** It held `looks_dictated()`, a
+heuristic measured **40% wrong** against the corpus — 77 of 192 positives sat
+on rows that structurally could not be speech, including `<task-notification>`
+XML, and it was wrong silently for months. It is not replaced by a better
+heuristic: a better heuristic shrinks the error and keeps it quiet. Spoken
+input is indistinguishable from typed at every capture point Claude Code
+exposes, because speech-to-text lands as keystrokes. `looks_dictated()` remains
+as a tombstone that raises. When the STT path marks its own output, stamp
+`Kind.SPOKEN` with `Discriminator.DECLARED`.
+
+**Counting prompts needs no subtraction.** `kind` distinguishes a human submit
+from a slash-command expansion or a task notification at write time:
+
+```sql
+SELECT count(*) FROM prompts
+WHERE kind IN ('spoken','typed','pasted','queued');
+```
+
+Backfill older rows with `python3 scripts/backfill_capture.py --apply`
+(idempotent; ids are derived, so re-running produces identical values).
+
+```sql
 
 CREATE TABLE meter_state (         -- resume offsets, keyed per FILE not session
     scan_key TEXT PRIMARY KEY,     -- absolute transcript path

@@ -96,13 +96,56 @@ def open_db(storage_path: Path) -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode=WAL")
     conn.executescript(SCHEMA)
     # Additive migrations. Older DBs predate these columns.
-    for col, decl in (("is_synthetic", "INTEGER DEFAULT 0"),):
+    for col, decl in (
+        ("is_synthetic", "INTEGER DEFAULT 0"),
+        # --- capture boundary (legion_capture) -------------------------------
+        # Stamped by the producer at write time. `kind` records WHAT this row
+        # is, `discriminator` records HOW that was decided, so a reader can
+        # tell a declaration from a fallback without re-deriving it.
+        ("uuid7", "TEXT"),
+        ("kind", "TEXT"),
+        ("discriminator", "TEXT"),
+        ("capture_source", "TEXT"),
+        ("captured_at", "TIMESTAMP"),
+    ):
         try:
             conn.execute(f"ALTER TABLE prompts ADD COLUMN {col} {decl}")
         except sqlite3.OperationalError:
             pass  # already present
+    # uuid7 is unique per row but cannot be declared UNIQUE by ALTER TABLE, so
+    # the index carries the guarantee for migrated databases.
+    try:
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_prompts_uuid7 "
+                     "ON prompts(uuid7) WHERE uuid7 IS NOT NULL")
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
+    _install_capture_guards(conn)
     return conn
+
+
+def _install_capture_guards(conn: sqlite3.Connection) -> None:
+    """Make an unstamped prompt row impossible to insert.
+
+    There are exactly two writers today and both stamp. The guard is for the
+    third one somebody adds later: a convention only holds until the next
+    capture site, a trigger is checked by the database on every insert
+    regardless of who wrote it.
+
+    This is what would have caught `sessions.total_tokens` shipping dark
+    through an entire version, and `model`/`effort` being NULL in 2,955 of
+    2,955 rows, instead of a year later.
+
+    Never blocks a session. A hook that refuses to run because a guard could
+    not be installed is a worse outcome than an unguarded column.
+    """
+    try:
+        from lib import capture
+        if not capture.CAPTURE_AVAILABLE:
+            return
+        capture.guard.install(conn, "prompts", required=["uuid7", "kind"])
+    except Exception:
+        pass
 
 
 # Not everything with a promptId is user input. Slash-command
@@ -111,7 +154,8 @@ def open_db(storage_path: Path) -> sqlite3.Connection:
 # silently dropped) but flagged so the feed can exclude them.
 _SYNTHETIC = re.compile(
     r"^\s*<(local-command-caveat|command-message|command-name|command-args"
-    r"|command-stdout|command-contents|user-prompt-submit-hook|system-reminder)\b",
+    r"|command-stdout|command-contents|user-prompt-submit-hook|system-reminder"
+    r"|task-notification)\b",
     re.IGNORECASE,
 )
 
@@ -137,38 +181,32 @@ def weigh(inp: int, cw: int, cr: int, out: int) -> int:
     return int(W_INPUT * inp + W_CACHE_WRITE * cw + W_CACHE_READ * cr + W_OUTPUT * out)
 
 
-# Filler and repair markers that survive speech-to-text but almost never appear
-# in typed input. Dictated prose reliably carries them.
-_DISFLUENCY = re.compile(
-    r"\b(um|uh|erm|uhh|hmm)\b|\b(\w+)[ ,]+\2\b|\.\.\.\s*of\b",
-    re.IGNORECASE,
-)
+# RETIRED 2026-08-07. `looks_dictated()` guessed speech from the shape of the
+# prose -- disfluencies, length, absence of code markers. Measured against the
+# corpus it was 40% wrong: 77 of 192 positives sat on rows that structurally
+# could not be speech, including `<task-notification>` XML, and it had been
+# wrong silently for months.
+#
+# It is not replaced by a better heuristic. A better heuristic shrinks the
+# error and keeps it quiet, and a quiet error is harder to find than a loud
+# one. Spoken input is indistinguishable from typed at every capture point
+# Claude Code exposes, because speech-to-text lands as keystrokes. Rows are now
+# stamped `kind=typed, discriminator=channel|undeclared`, which is what is
+# actually known.
+#
+# The real fix is upstream: the speech-to-text path marking its own output.
+# When it does, stamp `Kind.SPOKEN` with `Discriminator.DECLARED` and this
+# question is answered by evidence instead of by prose style.
 
 
 def looks_dictated(text: str) -> bool:
-    """Heuristic: was this prompt spoken rather than typed?
-
-    `promptSource` is "typed" for dictated input too, because speech-to-text
-    lands as keystrokes. So the only signal is the shape of the prose.
-
-    TODO: tune per user. Candidate signals, roughly by how much they discriminate:
-      - filler tokens (um, uh, erm) — near-zero false positives, but you edit
-        some of them out, so recall is the weak side
-      - immediate word repetition ("the the", "in my ear ear")
-      - long single-paragraph runs with no newline and no markdown
-      - absence of backticks, code fences, or file paths
-      - very high word count with very few punctuation marks per word
-    Returns True if spoken.
-    """
-    if not text:
-        return False
-    if _DISFLUENCY.search(text):
-        return True
-    # Long, unbroken, punctuation-light prose with no code markers.
-    words = text.split()
-    if len(words) > 120 and "\n" not in text.strip() and "`" not in text:
-        return True
-    return False
+    """Retired. Kept as a tombstone so a caller fails loudly rather than
+    silently reintroducing a 40%-wrong guess."""
+    raise NotImplementedError(
+        "looks_dictated() was retired: it was 40% wrong and silent. Spoken "
+        "input is not distinguishable from typed at any capture point Claude "
+        "Code exposes. Stamp Kind.SPOKEN only when the STT path declares it."
+    )
 
 
 def _parse_ts(s: str):
@@ -347,10 +385,19 @@ def _prompt_from_transcript(conn: sqlite3.Connection, session_id: str, d: dict) 
     synth = is_synthetic(content)
     seq, gap = _seq_and_gap(conn, session_id, ts, synth)
 
+    from lib import capture
+    capture.require()
+    kind, disc = _classify_transcript_prompt(d, synth, capture)
+    stamped = capture.stamp(
+        {}, kind=kind, source="transcript", discriminator=disc,
+        ts=ts or None, key_parts=(session_id, d["promptId"]),
+    )
+
     conn.execute(
         """INSERT INTO prompts (prompt_id, session_id, ts, seq, text, chars, words,
-               dictated, gap_seconds, cwd, git_branch, prompt_source, is_synthetic)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+               dictated, gap_seconds, cwd, git_branch, prompt_source, is_synthetic,
+               uuid7, kind, discriminator, capture_source, captured_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
            ON CONFLICT(prompt_id) DO NOTHING""",
         (
             d["promptId"],
@@ -360,14 +407,51 @@ def _prompt_from_transcript(conn: sqlite3.Connection, session_id: str, d: dict) 
             content,
             len(content),
             len(content.split()),
-            1 if looks_dictated(content) else 0,
+            None,                       # `dictated`: retired, never guessed again
             gap,
             d.get("cwd"),
             d.get("gitBranch"),
             d.get("promptSource"),
             1 if synth else 0,
+            stamped["uuid7"],
+            stamped["kind"],
+            stamped["discriminator"],
+            stamped["source"],
+            stamped["captured_at"],
         ),
     )
+
+
+def _classify_transcript_prompt(d: dict, synth: bool, capture):
+    """(kind, discriminator) from what the transcript declares.
+
+    Unlike the hook payload, a transcript record often states its own origin.
+    Most authoritative declaration first; where nothing is declared the row
+    says UNDECLARED rather than inheriting a default that looks like evidence.
+    """
+    Kind, Disc = capture.Kind, capture.Discriminator
+    if synth:
+        return Kind.EXPANSION, Disc.CHANNEL
+
+    origin = (d.get("origin") or {}).get("kind")
+    source = d.get("promptSource")
+
+    if origin is not None and origin != "human":
+        # The harness named a machine origin outright: cron, a task
+        # notification, an SDK call. 1,085 such rows once wore the human's
+        # identity because nothing recorded this.
+        return (Kind.SCHEDULED if origin in ("cron", "agent", "sdk")
+                else Kind.INJECTION), Disc.DECLARED
+
+    if source in ("typed", "queued"):
+        return (Kind.QUEUED if source == "queued" else Kind.TYPED), (
+            Disc.DECLARED if origin == "human" else Disc.CHANNEL)
+
+    if origin == "human":
+        return Kind.TYPED, Disc.DECLARED
+
+    # The oldest transcripts declared neither. Say so.
+    return Kind.TYPED, Disc.UNDECLARED
 
 
 def _refresh_session_tokens(conn: sqlite3.Connection, session_id: str) -> None:
@@ -381,7 +465,25 @@ def _refresh_session_tokens(conn: sqlite3.Connection, session_id: str) -> None:
 
 
 def record_prompt(conn: sqlite3.Connection, payload: dict, git_branch: str | None = None) -> bool:
-    """Write one `prompts` row from a UserPromptSubmit hook payload."""
+    """Write one `prompts` row from a UserPromptSubmit hook payload.
+
+    Provenance is stamped here, at the boundary, because here is the last point
+    at which any of it is known. Measured against 2,149 real payloads:
+
+      declared by the payload   session_id, prompt_id, cwd, permission_mode
+      declared by the CHANNEL   that a human submitted this — the hook fires
+                                on submit and on nothing else
+      never present             model (0 of 2,149), effort, prompt_source
+
+    So `kind` is TYPED with `discriminator=CHANNEL`: the channel proves a human
+    submitted, and proves nothing about typed-versus-spoken. That distinction
+    needs the speech-to-text path to mark its own output, and until it does the
+    honest record is TYPED/CHANNEL rather than a guess.
+
+    `prompt_source` used to default to "typed" and `dictated` used to hold the
+    output of `looks_dictated()`, which was 40% wrong. Both are now left NULL:
+    an absent value is recoverable, a fabricated one is not.
+    """
     prompt_id = payload.get("prompt_id")
     session_id = payload.get("session_id")
     if not prompt_id or not session_id:
@@ -396,11 +498,24 @@ def record_prompt(conn: sqlite3.Connection, payload: dict, git_branch: str | Non
     if isinstance(effort, dict):
         effort = effort.get("level")
 
+    from lib import capture
+    capture.require()
+    # A synthetic turn rode in on the user channel but nobody submitted it.
+    # Saying so at capture time is what makes `SELECT count(*) WHERE kind IN
+    # (submit kinds)` the answer to "how many prompts", with no subtraction.
+    kind = capture.Kind.EXPANSION if synth else capture.Kind.TYPED
+    stamped = capture.stamp(
+        {}, kind=kind, source="UserPromptSubmit",
+        discriminator=capture.Discriminator.CHANNEL,
+        ts=now, key_parts=(session_id, prompt_id),
+    )
+
     conn.execute(
         """INSERT INTO prompts (prompt_id, session_id, ts, seq, text, chars, words,
                dictated, gap_seconds, cwd, git_branch, prompt_source,
-               permission_mode, effort, model, is_synthetic)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+               permission_mode, effort, model, is_synthetic,
+               uuid7, kind, discriminator, capture_source, captured_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
            ON CONFLICT(prompt_id) DO NOTHING""",
         (
             prompt_id,
@@ -410,15 +525,20 @@ def record_prompt(conn: sqlite3.Connection, payload: dict, git_branch: str | Non
             text,
             len(text),
             len(text.split()),
-            1 if looks_dictated(text) else 0,
+            None,                       # `dictated`: retired, never guessed again
             gap,
             payload.get("cwd"),
             git_branch,
-            payload.get("prompt_source") or "typed",
+            payload.get("prompt_source"),   # NULL when undeclared, not "typed"
             payload.get("permission_mode"),
             effort,
             payload.get("model"),
             1 if synth else 0,
+            stamped["uuid7"],
+            stamped["kind"],
+            stamped["discriminator"],
+            stamped["source"],
+            stamped["captured_at"],
         ),
     )
     conn.commit()
