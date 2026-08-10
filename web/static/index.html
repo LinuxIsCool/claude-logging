@@ -295,6 +295,7 @@ const state = {
   sessionView: 'cards',
   sessionCatalogQuery: '',
   sessionTranscripts: new Map(),
+  currentTranscriptData: null,
   searchResults: null,
   searchQuery: '',
   searchMode: 'prompts',
@@ -311,7 +312,6 @@ const state = {
   sessionTypeFilter: '',
   sessionScrollY: 0,
   liveRefresh: false,
-  refocusSessionQuery: false,
   catalogScrollY: 0,
   routeGeneration: 0,
 };
@@ -691,6 +691,18 @@ function visibleSessionEvents(t) {
   return events;
 }
 
+function applySessionFilterVisibility(t, root) {
+  const visibleIds = new Set(visibleSessionEvents(t).map(event => event.event_id));
+  root.querySelectorAll('[data-session-event]').forEach(element => element.classList.toggle('hidden', !visibleIds.has(element.dataset.sessionEvent)));
+  root.querySelectorAll('[data-map-event]').forEach(element => element.classList.toggle('hidden', !visibleIds.has(element.dataset.mapEvent)));
+  const count = root.querySelector('#session-filter-count');
+  if (count) {
+    const filtering = Boolean(state.sessionQuery || state.sessionTypeFilter);
+    count.classList.toggle('hidden', !filtering);
+    count.textContent = filtering ? `${visibleIds.size} of ${t.events.length}` : '';
+  }
+}
+
 function formatDuration(ms) {
   if (ms === null || ms === undefined) return '';
   return ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)} s`;
@@ -856,6 +868,7 @@ function openSession(sessionId, projectSlug = '', options = {}) {
   }
   state.currentSession = sessionId;
   state.currentTranscriptProject = projectSlug;
+  state.currentTranscriptData = null;
   state.currentMessageId = '';
   state.selectedEventId = '';
   const url = sessionUrl(sessionId, projectSlug);
@@ -887,7 +900,7 @@ async function loadSessionCatalog({append = false} = {}) {
   return state.sessions;
 }
 
-async function renderTranscriptTab({useCache = false} = {}) {
+async function renderTranscriptTab({useCache = false, useTranscriptCache = false} = {}) {
   window._conversationMinimapObserver?.disconnect();
   const main = document.getElementById('view-root');
   const routeGeneration = state.routeGeneration;
@@ -987,15 +1000,18 @@ async function renderTranscriptTab({useCache = false} = {}) {
   }
 
   document.body.classList.add('session-explorer');
-  main.innerHTML = `<div class="empty">Opening session…</div>`;
+  if (!main.querySelector('.session-shell') && !main.querySelector('.message-detail')) main.innerHTML = `<div class="empty">Opening session…</div>`;
   try {
     const catalogPromise = state.sessions.length ? Promise.resolve(state.sessions) : loadSessionCatalog();
+    const transcriptPromise = useTranscriptCache && state.currentTranscriptData?.session_id === routeSession
+      ? Promise.resolve(state.currentTranscriptData)
+      : api('/api/transcript', {
+          session: state.currentSession,
+          project_slug: state.currentTranscriptProject,
+          mode: state.transcriptMode === 'raw' ? 'full' : 'explore',
+        });
     const [t] = await Promise.all([
-      api('/api/transcript', {
-        session: state.currentSession,
-        project_slug: state.currentTranscriptProject,
-        mode: state.transcriptMode === 'raw' ? 'full' : 'explore',
-      }),
+      transcriptPromise,
       catalogPromise,
     ]);
     if (!routeIsCurrent()) return;
@@ -1003,6 +1019,7 @@ async function renderTranscriptTab({useCache = false} = {}) {
       main.innerHTML = `<div class="empty text-red">${escapeHtml(t.error)}</div>`;
       return;
     }
+    state.currentTranscriptData = t;
     if (state.currentMessageId) {
       let message = t.events.find(event => event.event_id === state.currentMessageId);
       if (!message) {
@@ -1028,7 +1045,9 @@ async function renderTranscriptTab({useCache = false} = {}) {
       main.querySelector('[data-action="back-to-transcript"]')?.addEventListener('click', backToTranscript);
       return;
     }
-    const events = visibleSessionEvents(t);
+    const events = state.transcriptMode === 'clean'
+      ? t.events.filter(e => ['UserPromptSubmit', 'AssistantResponse'].includes(e.type))
+      : t.events;
     const eventTypes = [...new Set(t.events.map(e => e.type))].sort();
     const mapEvents = events.filter(e => ['UserPromptSubmit','AssistantResponse'].includes(e.type));
     main.innerHTML = `
@@ -1059,7 +1078,7 @@ async function renderTranscriptTab({useCache = false} = {}) {
                 <option value="">All visible event types</option>
                 ${eventTypes.map(type => `<option value="${escapeHtml(type)}" ${state.sessionTypeFilter === type ? 'selected' : ''}>${escapeHtml(type)}</option>`).join('')}
               </select>
-              ${(state.sessionQuery || state.sessionTypeFilter) ? `<span class="text-[0.68rem] text-yellow">${events.length} of ${t.events.length}</span>` : ''}
+              <span id="session-filter-count" class="text-[0.68rem] text-yellow hidden"></span>
             </div>
           </header>
           <section id="session-timeline" class="${state.transcriptMode === 'clean' ? 'card session-reader-scroll' : ''}">${state.transcriptMode === 'clean' ? (events.filter(e => ['UserPromptSubmit','AssistantResponse'].includes(e.type)).map(renderSessionMessage).join('\n') || '<div class="empty">No conversational messages.</div>') : (events.map(renderTimelineEvent).join('\n') || '<div class="empty">No events in this view.</div>')}</section>
@@ -1067,24 +1086,21 @@ async function renderTranscriptTab({useCache = false} = {}) {
       </div>`;
     main.querySelectorAll('[data-action="back-to-sessions"]').forEach(button => button.addEventListener('click', backToSessions));
     main.querySelectorAll('[data-mode]').forEach(el => el.addEventListener('click', () => {
+      const previousMode = state.transcriptMode;
       state.transcriptMode = el.dataset.mode;
-      renderTranscriptTab();
+      renderTranscriptTab({useTranscriptCache: state.transcriptMode === 'clean' || previousMode === state.transcriptMode});
     }));
     main.querySelector('[data-action="toggle-session-details"]')?.addEventListener('click', () => {
       state.sessionDetailsVisible = !state.sessionDetailsVisible;
-      renderTranscriptTab();
+      renderTranscriptTab({useTranscriptCache: true});
     });
     document.getElementById('session-query')?.addEventListener('input', event => {
       state.sessionQuery = event.target.value;
-      clearTimeout(window._sessionFilterDebounce);
-      window._sessionFilterDebounce = setTimeout(() => {
-        state.refocusSessionQuery = document.activeElement?.id === 'session-query';
-        renderTranscriptTab();
-      }, 120);
+      applySessionFilterVisibility(t, main);
     });
     document.getElementById('session-type-filter')?.addEventListener('change', event => {
       state.sessionTypeFilter = event.target.value;
-      renderTranscriptTab();
+      applySessionFilterVisibility(t, main);
     });
     main.querySelectorAll('[data-session-event]').forEach(el => el.addEventListener('click', () => toggleSessionSelection(t, el.dataset.sessionEvent, false)));
     main.querySelectorAll('[data-message-detail]').forEach(button => button.addEventListener('click', event => {
@@ -1093,6 +1109,7 @@ async function renderTranscriptTab({useCache = false} = {}) {
       openMessageDetail(t.session_id, state.currentTranscriptProject || t.project_slug || '', button.dataset.messageDetail);
     }));
     main.querySelectorAll('[data-map-event]').forEach(el => el.addEventListener('click', () => toggleSessionSelection(t, el.dataset.mapEvent)));
+    applySessionFilterVisibility(t, main);
     wireConversationMinimap(main);
     main.querySelectorAll('[data-lineage-session]').forEach(el => el.addEventListener('click', () => openSession(el.dataset.lineageSession, '')));
     main.querySelectorAll('.preview').forEach(el => el.addEventListener('click', event => {
@@ -1103,13 +1120,6 @@ async function renderTranscriptTab({useCache = false} = {}) {
     const anchor = anchorMatch ? decodeURIComponent(anchorMatch[1]) : '';
     if (anchor && events.some(e => e.event_id === anchor)) selectSessionEvent(t, anchor, true, false);
     else if (state.liveRefresh) requestAnimationFrame(() => window.scrollTo(0, state.sessionScrollY));
-    if (state.refocusSessionQuery) requestAnimationFrame(() => {
-      const input = document.getElementById('session-query');
-      if (!input) return;
-      input.focus();
-      input.setSelectionRange(input.value.length, input.value.length);
-    });
-    state.refocusSessionQuery = false;
     state.liveRefresh = false;
   } catch (e) {
     main.innerHTML = `<div class="empty text-red">Error: ${escapeHtml(e.message)}</div>`;
@@ -1458,12 +1468,27 @@ function setLiveDot(color, title) {
 }
 
 let _liveRefetchTimer = null;
+let _liveRefreshPending = false;
+function userIsEditing() {
+  const active = document.activeElement;
+  return Boolean(active && (active.matches('input, textarea, select') || active.isContentEditable));
+}
+
 function scheduleLiveRefetch() {
   // Coalesce bursts: multiple corpus-changed events within 100ms become
   // one re-render.
+  if (userIsEditing()) {
+    _liveRefreshPending = true;
+    return;
+  }
   if (_liveRefetchTimer) return;
   _liveRefetchTimer = setTimeout(() => {
     _liveRefetchTimer = null;
+    if (userIsEditing()) {
+      _liveRefreshPending = true;
+      return;
+    }
+    _liveRefreshPending = false;
     if (state.tab === 'sessions' && state.currentSession) {
       state.sessionScrollY = window.scrollY;
       state.liveRefresh = true;
@@ -1475,6 +1500,10 @@ function scheduleLiveRefetch() {
     refreshHealthBadge().catch(() => {});
   }, 100);
 }
+
+document.addEventListener('focusout', () => setTimeout(() => {
+  if (_liveRefreshPending && !userIsEditing()) scheduleLiveRefetch();
+}, 0));
 
 let _es = null;
 let _esReconnectMs = 1000;

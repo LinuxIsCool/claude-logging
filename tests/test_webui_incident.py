@@ -156,8 +156,15 @@ def test_sessions_are_primary_navigation_and_use_rows() -> None:
     assert "new BroadcastChannel(`legion.logging.live:${_liveScope}`)" in html
     assert "if (_liveChannel && !_liveLeader) return" in html
     assert "_liveChannel?.postMessage({type: 'corpus-changed'})" in html
-    assert "state.refocusSessionQuery = document.activeElement?.id === 'session-query'" in html
-    assert "input.setSelectionRange(input.value.length, input.value.length)" in html
+    assert "function applySessionFilterVisibility(t, root)" in html
+    assert "applySessionFilterVisibility(t, main)" in html
+    assert "_sessionFilterDebounce" not in html
+    assert "useTranscriptCache = false" in html
+    assert "state.currentTranscriptData?.session_id === routeSession" in html
+    assert "renderTranscriptTab({useTranscriptCache: true})" in html
+    assert "function userIsEditing()" in html
+    assert "_liveRefreshPending = true" in html
+    assert "if (_liveRefreshPending && !userIsEditing()) scheduleLiveRefetch()" in html
     assert "function toolStatusBadge(e)" in html
     assert "e.tool_call_id" in html
     assert "function renderSessionGraph(graph)" in html
