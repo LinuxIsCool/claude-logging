@@ -842,6 +842,25 @@ function toggleSessionSelection(t, eventId, scroll = true) {
   else selectSessionEvent(t, eventId, scroll);
 }
 
+function wireTranscriptInteractions(root, t) {
+  root.querySelectorAll('[data-session-event]:not([data-interaction-wired])').forEach(element => {
+    element.dataset.interactionWired = 'true';
+    element.addEventListener('click', () => toggleSessionSelection(t, element.dataset.sessionEvent, false));
+  });
+  root.querySelectorAll('[data-message-detail]:not([data-interaction-wired])').forEach(button => {
+    button.dataset.interactionWired = 'true';
+    button.addEventListener('click', event => {
+      event.preventDefault();
+      event.stopPropagation();
+      openMessageDetail(t.session_id, state.currentTranscriptProject || t.project_slug || '', button.dataset.messageDetail);
+    });
+  });
+  root.querySelectorAll('[data-map-event]:not([data-interaction-wired])').forEach(element => {
+    element.dataset.interactionWired = 'true';
+    element.addEventListener('click', () => toggleSessionSelection(t, element.dataset.mapEvent));
+  });
+}
+
 function openMessageDetail(sessionId, projectSlug, eventId) {
   state.currentMessageId = eventId;
   history.pushState({route: 'message-detail', sessionDetail: true}, '', messageUrl(sessionId, projectSlug, eventId));
@@ -1065,7 +1084,7 @@ async function renderTranscriptTab({useCache = false, useTranscriptCache = false
                 ${(t.runtimes || []).map(r => `<span class="badge text-sky">${escapeHtml(r)}</span>`).join('')}
                 ${(t.source_kinds || ['live']).map(kind => `<span class="badge text-yellow">${escapeHtml(kind)}</span>`).join('')}
                 ${(t.models || []).filter(Boolean).map(m => `<span class="badge">${escapeHtml(m)}</span>`).join('')}
-                <span class="badge">${Number(t.total_event_count || 0).toLocaleString()} events</span>
+                <span id="session-event-count" class="badge">${Number(t.total_event_count || 0).toLocaleString()} events</span>
                 ${(t.artifacts || []).length ? `<span class="badge text-yellow">${t.artifacts.length} artifacts</span>` : ''}
               </div>
             </div>
@@ -1102,13 +1121,7 @@ async function renderTranscriptTab({useCache = false, useTranscriptCache = false
       state.sessionTypeFilter = event.target.value;
       applySessionFilterVisibility(t, main);
     });
-    main.querySelectorAll('[data-session-event]').forEach(el => el.addEventListener('click', () => toggleSessionSelection(t, el.dataset.sessionEvent, false)));
-    main.querySelectorAll('[data-message-detail]').forEach(button => button.addEventListener('click', event => {
-      event.preventDefault();
-      event.stopPropagation();
-      openMessageDetail(t.session_id, state.currentTranscriptProject || t.project_slug || '', button.dataset.messageDetail);
-    }));
-    main.querySelectorAll('[data-map-event]').forEach(el => el.addEventListener('click', () => toggleSessionSelection(t, el.dataset.mapEvent)));
+    wireTranscriptInteractions(main, t);
     applySessionFilterVisibility(t, main);
     wireConversationMinimap(main);
     main.querySelectorAll('[data-lineage-session]').forEach(el => el.addEventListener('click', () => openSession(el.dataset.lineageSession, '')));
@@ -1124,6 +1137,43 @@ async function renderTranscriptTab({useCache = false, useTranscriptCache = false
   } catch (e) {
     main.innerHTML = `<div class="empty text-red">Error: ${escapeHtml(e.message)}</div>`;
   }
+}
+
+async function refreshCurrentSessionIncrementally() {
+  const previous = state.currentTranscriptData;
+  const sessionId = state.currentSession;
+  const main = document.getElementById('view-root');
+  const timeline = document.getElementById('session-timeline');
+  const map = main.querySelector('.session-map');
+  if (!previous || !sessionId || !timeline || !map || state.currentMessageId) {
+    await renderTranscriptTab();
+    return;
+  }
+  const next = await api('/api/transcript', {
+    session: sessionId,
+    project_slug: state.currentTranscriptProject,
+    mode: state.transcriptMode === 'raw' ? 'full' : 'explore',
+  });
+  if (next.error || state.currentSession !== sessionId) return;
+  const priorIds = new Set((previous.events || []).map(event => event.event_id));
+  const additions = (next.events || []).filter(event => !priorIds.has(event.event_id));
+  state.currentTranscriptData = next;
+  const count = document.getElementById('session-event-count');
+  if (count) count.textContent = `${Number(next.total_event_count || next.events?.length || 0).toLocaleString()} events`;
+  if (!additions.length) return;
+
+  const visibleAdditions = state.transcriptMode === 'clean'
+    ? additions.filter(event => ['UserPromptSubmit', 'AssistantResponse'].includes(event.type))
+    : additions;
+  if (visibleAdditions.length) {
+    const renderer = state.transcriptMode === 'clean' ? renderSessionMessage : renderTimelineEvent;
+    timeline.insertAdjacentHTML('beforeend', visibleAdditions.map(renderer).join('\n'));
+  }
+  const conversationAdditions = additions.filter(event => ['UserPromptSubmit', 'AssistantResponse'].includes(event.type));
+  if (conversationAdditions.length) map.insertAdjacentHTML('beforeend', conversationAdditions.map(renderConversationMapLink).join(''));
+  wireTranscriptInteractions(main, next);
+  applySessionFilterVisibility(next, main);
+  wireConversationMinimap(main);
 }
 
 async function renderSearchTab() {
@@ -1489,11 +1539,13 @@ function scheduleLiveRefetch() {
       return;
     }
     _liveRefreshPending = false;
-    if (state.tab === 'sessions' && state.currentSession) {
+    if (state.tab === 'sessions' && state.currentSession && state.currentMessageId) {
       state.sessionScrollY = window.scrollY;
       state.liveRefresh = true;
     }
-    const r = tabRenderers[state.tab];
+    const r = state.tab === 'sessions' && state.currentSession && !state.currentMessageId
+      ? refreshCurrentSessionIncrementally
+      : tabRenderers[state.tab];
     if (r) Promise.resolve(r()).catch(e => console.warn('live re-render failed:', e));
     refreshStats().catch(() => {});
     loadProjects().catch(() => {});

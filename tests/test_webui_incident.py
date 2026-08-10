@@ -115,7 +115,7 @@ def test_sessions_are_primary_navigation_and_use_rows() -> None:
     assert "function clearSessionSelection(t, updateUrl = true)" in html
     assert "function toggleSessionSelection(t, eventId, scroll = true)" in html
     assert "if (state.selectedEventId === eventId) clearSessionSelection(t)" in html
-    assert "toggleSessionSelection(t, el.dataset.sessionEvent, false)" in html
+    assert "toggleSessionSelection(t, element.dataset.sessionEvent, false)" in html
     assert 'data-message-detail="${escapeHtml(event.event_id)}"' in html
     assert "event.stopPropagation()" in html
     assert "event.key !== 'Escape'" in html
@@ -165,6 +165,11 @@ def test_sessions_are_primary_navigation_and_use_rows() -> None:
     assert "function userIsEditing()" in html
     assert "_liveRefreshPending = true" in html
     assert "if (_liveRefreshPending && !userIsEditing()) scheduleLiveRefetch()" in html
+    assert "async function refreshCurrentSessionIncrementally()" in html
+    assert "timeline.insertAdjacentHTML('beforeend'" in html
+    assert "map.insertAdjacentHTML('beforeend'" in html
+    assert "? refreshCurrentSessionIncrementally" in html
+    assert "wireTranscriptInteractions(main, next)" in html
     assert "function toolStatusBadge(e)" in html
     assert "e.tool_call_id" in html
     assert "function renderSessionGraph(graph)" in html
