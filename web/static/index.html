@@ -124,6 +124,10 @@
   .message-actions { display:flex; justify-content:flex-end; margin-top:8px; }
   .message-details-link { color:#7f849c; font:9px/1.2 'JetBrains Mono',monospace; letter-spacing:.04em; padding:4px 7px; border-radius:5px; }
   .message-details-link:hover { color:#cba6f7; background:#cba6f712; }
+  .inline-event-details { display:flex; flex-wrap:wrap; gap:8px 16px; margin-top:12px; padding:10px 11px; border:1px solid #313244; border-radius:7px; background:#11111b88; }
+  .inline-event-details div { min-width:90px; }
+  .inline-event-details dt { color:#6c7086; font:8px/1.3 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase; }
+  .inline-event-details dd { margin-top:3px; color:#a6adc8; font:10px/1.4 'JetBrains Mono',monospace; overflow-wrap:anywhere; }
   .session-message:last-child:not(.selected) { border-bottom-color:transparent; }
   .session-message-role { color:#89b4fa; font-size:.58rem; letter-spacing:.1em; text-transform:uppercase; margin-bottom:6px; }
   .session-message.assistant .session-message-role { color:#a6e3a1; }
@@ -301,6 +305,7 @@ const state = {
   currentMessageId: '',
   currentPromptDetail: null,
   transcriptMode: 'clean',
+  sessionDetailsVisible: false,
   selectedEventId: '',
   sessionQuery: '',
   sessionTypeFilter: '',
@@ -473,8 +478,19 @@ function renderSessionMessage(event) {
   return `<article ${anchor} class="session-message timeline-event ${assistant ? 'assistant' : 'user'}">
     <div class="session-message-role">${assistant ? '◆ assistant' : '▶ user'}</div>
     <div class="markdown">${markdownHtml(content)}</div>
+    ${state.sessionDetailsVisible ? renderInlineEventDetails(event) : ''}
     <div class="message-actions"><button class="message-details-link" data-message-detail="${escapeHtml(event.event_id)}">Details ↗</button></div>
   </article>`;
+}
+
+function renderInlineEventDetails(event) {
+  return `<dl class="inline-event-details">
+    <div><dt>type</dt><dd>${escapeHtml(event.type || '')}</dd></div>
+    <div><dt>runtime</dt><dd>${escapeHtml(event.runtime || 'claude')}</dd></div>
+    ${event.model ? `<div><dt>model</dt><dd>${escapeHtml(event.model)}</dd></div>` : ''}
+    <div><dt>timestamp</dt><dd>${escapeHtml(event.ts || '')}</dd></div>
+    <div><dt>event</dt><dd><code>${escapeHtml(event.event_id || '')}</code></dd></div>
+  </dl>`;
 }
 
 function firstCompleteSentence(source) {
@@ -696,17 +712,18 @@ function renderTimelineEvent(e, index) {
     <article id="event-${escapeHtml(e.event_id)}" class="timeline-event card p-4 mb-2 cursor-pointer ${primary ? '' : 'compact'}" data-session-event="${escapeHtml(e.event_id)}">
       <div class="flex items-center gap-2 text-xs flex-wrap">
         <span class="badge ${e.type === 'UserPromptSubmit' ? 'text-mauve' : e.type === 'AssistantResponse' ? 'text-green' : 'text-sky'}">${escapeHtml(e.type)}</span>
-        <span class="badge text-sky">${escapeHtml(e.runtime || 'claude')}</span>
-        ${e.tool_name ? `<span class="badge badge-tool">${escapeHtml(e.tool_name)}</span>` : ''}
-        ${toolStatusBadge(e)}
-        ${e.duration_ms !== null && e.duration_ms !== undefined ? `<span class="text-overlay1">${escapeHtml(formatDuration(e.duration_ms))}</span>` : ''}
-        ${e.model ? `<span class="text-overlay1">${escapeHtml(e.model)}</span>` : ''}
+        ${state.sessionDetailsVisible ? `<span class="badge text-sky">${escapeHtml(e.runtime || 'claude')}</span>
+          ${e.tool_name ? `<span class="badge badge-tool">${escapeHtml(e.tool_name)}</span>` : ''}
+          ${toolStatusBadge(e)}
+          ${e.duration_ms !== null && e.duration_ms !== undefined ? `<span class="text-overlay1">${escapeHtml(formatDuration(e.duration_ms))}</span>` : ''}
+          ${e.model ? `<span class="text-overlay1">${escapeHtml(e.model)}</span>` : ''}` : ''}
         <span class="text-overlay0 ml-auto">${escapeHtml((e.ts || '').slice(11, 19))}</span>
       </div>
       ${content ? `<div class="event-body preview text-sm mt-3">${escapeHtml(content)}</div>` : ''}
       ${(e.artifacts || []).length ? `<div class="text-[0.68rem] text-yellow mt-2">${e.artifacts.length} attached artifact${e.artifacts.length === 1 ? '' : 's'}</div>` : ''}
       ${e.content_truncated ? '<div class="text-[0.65rem] text-overlay0 mt-2">Preview truncated · select event for complete payload</div>' : ''}
       ${raw}
+      ${state.sessionDetailsVisible ? renderInlineEventDetails(e) : ''}
       <div class="message-actions"><button class="message-details-link" data-message-detail="${escapeHtml(e.event_id)}">Details ↗</button></div>
     </article>`;
 }
@@ -1035,8 +1052,8 @@ async function renderTranscriptTab({useCache = false} = {}) {
             </div>
             <div class="session-controls">
               <button class="view-nav-item ${state.transcriptMode==='clean'?'active':''}" data-mode="clean">Clean</button>
-              <button class="view-nav-item ${state.transcriptMode==='detailed'?'active':''}" data-mode="detailed">Detailed</button>
               <button class="view-nav-item ${state.transcriptMode==='raw'?'active':''}" data-mode="raw">Raw</button>
+              <button class="view-nav-item ${state.sessionDetailsVisible?'active':''}" data-action="toggle-session-details" aria-pressed="${state.sessionDetailsVisible}">Details</button>
               <input id="session-query" class="txt text-xs min-w-[220px]" type="search" value="${escapeHtml(state.sessionQuery)}" placeholder="Filter this session…" aria-label="Filter events in this session" />
               <select id="session-type-filter" class="txt text-xs" aria-label="Filter session by event type">
                 <option value="">All visible event types</option>
@@ -1053,6 +1070,10 @@ async function renderTranscriptTab({useCache = false} = {}) {
       state.transcriptMode = el.dataset.mode;
       renderTranscriptTab();
     }));
+    main.querySelector('[data-action="toggle-session-details"]')?.addEventListener('click', () => {
+      state.sessionDetailsVisible = !state.sessionDetailsVisible;
+      renderTranscriptTab();
+    });
     document.getElementById('session-query')?.addEventListener('input', event => {
       state.sessionQuery = event.target.value;
       clearTimeout(window._sessionFilterDebounce);

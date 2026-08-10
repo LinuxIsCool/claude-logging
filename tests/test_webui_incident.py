@@ -137,6 +137,11 @@ def test_sessions_are_primary_navigation_and_use_rows() -> None:
     assert "Newer →" not in html
     assert '<code>${escapeHtml(t.session_id)}</code>' in html
     assert "mode: state.transcriptMode === 'raw' ? 'full' : 'explore'" in html
+    assert "sessionDetailsVisible: false" in html
+    assert 'data-action="toggle-session-details"' in html
+    assert "state.sessionDetailsVisible = !state.sessionDetailsVisible" in html
+    assert "function renderInlineEventDetails(event)" in html
+    assert 'data-mode="detailed"' not in html
     assert 'id="session-query"' in html
     assert 'id="session-type-filter"' in html
     assert "function sessionEventUrl(" in html
