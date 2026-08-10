@@ -491,8 +491,12 @@ def record_prompt(conn: sqlite3.Connection, payload: dict, git_branch: str | Non
 
     text = payload.get("prompt") or ""
     now = datetime.now(timezone.utc)
+    # Preserve the boundary timestamp on the source payload so a retry or a
+    # second projection of the same captured record derives the identical v7
+    # identity instead of sampling a new clock millisecond.
+    capture_ts = payload.get("ts") or payload.setdefault("_capture_ts", now.isoformat())
     synth = is_synthetic(text)
-    seq, gap = _seq_and_gap(conn, session_id, now.isoformat(), synth)
+    seq, gap = _seq_and_gap(conn, session_id, str(capture_ts), synth)
 
     effort = payload.get("effort")
     if isinstance(effort, dict):
@@ -507,7 +511,7 @@ def record_prompt(conn: sqlite3.Connection, payload: dict, git_branch: str | Non
     stamped = capture.stamp(
         {}, kind=kind, source="UserPromptSubmit",
         discriminator=capture.Discriminator.CHANNEL,
-        ts=now, key_parts=(session_id, prompt_id),
+        ts=capture_ts, key_parts=(session_id, prompt_id),
     )
 
     conn.execute(
@@ -520,7 +524,7 @@ def record_prompt(conn: sqlite3.Connection, payload: dict, git_branch: str | Non
         (
             prompt_id,
             session_id,
-            now.isoformat(),
+            str(capture_ts),
             seq,
             text,
             len(text),

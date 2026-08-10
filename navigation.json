@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "app": "logging",
+  "destinations": [
+    {"id": "sessions", "label": "Sessions", "href": "/logging/sessions", "aliases": ["logs"], "keywords": ["transcripts", "agent sessions"]},
+    {"id": "prompts", "label": "Prompts", "href": "/logging/#prompts", "keywords": ["requests", "messages"]},
+    {"id": "search", "label": "Search", "href": "/logging/#search"},
+    {"id": "settings", "label": "Settings", "href": "/logging/#settings", "aliases": ["preferences", "config"]}
+  ]
+}

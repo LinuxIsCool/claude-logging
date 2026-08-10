@@ -15,13 +15,26 @@ CREATE TABLE IF NOT EXISTS events_index (
     ts TIMESTAMP NOT NULL,
     persona TEXT,
     content_preview TEXT,
-    has_full_content INTEGER DEFAULT 0
+    has_full_content INTEGER DEFAULT 0,
+    is_synthetic INTEGER DEFAULT 0,
+    runtime TEXT NOT NULL DEFAULT 'claude',
+    runtime_event TEXT,
+    turn_id TEXT,
+    capture_source TEXT,
+    source_kind TEXT NOT NULL DEFAULT 'live',
+    model TEXT,
+    permission_mode TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_events_index_ts ON events_index(ts DESC);
 CREATE INDEX IF NOT EXISTS idx_events_index_project ON events_index(project_slug);
 CREATE INDEX IF NOT EXISTS idx_events_index_persona ON events_index(persona);
 CREATE INDEX IF NOT EXISTS idx_events_index_session ON events_index(session_id);
+CREATE INDEX IF NOT EXISTS idx_events_index_session_type_ts ON events_index(session_id, type, ts);
 CREATE INDEX IF NOT EXISTS idx_events_index_type ON events_index(type);
+CREATE INDEX IF NOT EXISTS idx_events_index_synthetic ON events_index(is_synthetic);
+CREATE INDEX IF NOT EXISTS idx_events_index_runtime ON events_index(runtime);
+CREATE INDEX IF NOT EXISTS idx_events_index_turn ON events_index(turn_id);
+CREATE INDEX IF NOT EXISTS idx_events_index_source_kind ON events_index(source_kind);
 
 -- Cross-project FTS5 — mirrors content_preview for "search every prompt I ever submitted"
 CREATE VIRTUAL TABLE IF NOT EXISTS events_index_fts USING fts5(

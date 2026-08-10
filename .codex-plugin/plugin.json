@@ -1,0 +1,21 @@
+{
+  "name": "claude-logging",
+  "version": "1.1.0+codex.20260808222928",
+  "description": "Runtime-aware logging, search, and visualization for Claude Code and Codex sessions",
+  "author": {
+    "name": "Legion"
+  },
+  "interface": {
+    "displayName": "Legion Logging",
+    "shortDescription": "Live, searchable agent-session observability.",
+    "longDescription": "Captures Codex lifecycle events into Legion's durable JSONL archive and live SQLite/WebUI read models with explicit runtime provenance.",
+    "developerName": "Legion",
+    "category": "Productivity",
+    "capabilities": [
+      "hooks",
+      "observability",
+      "search"
+    ],
+    "defaultPrompt": "Show me the health of agent-session logging."
+  }
+}

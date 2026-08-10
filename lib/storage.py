@@ -93,6 +93,20 @@ class Event:
     tool_name: str | None = None
     tool_input_hash: str | None = None
 
+    # Runtime-neutral provenance. Legacy records are Claude captures, so the
+    # default is deliberately "claude" rather than an ambiguous NULL.
+    runtime: str = "claude"
+    runtime_event: str | None = None
+    turn_id: str | None = None
+    capture_source: str | None = None
+    source_kind: str = "live"
+    model: str | None = None
+    permission_mode: str | None = None
+    duration_ms: int | None = None
+    tokens_in: int | None = None
+    tokens_out: int | None = None
+    cost_usd: float | None = None
+
     def __post_init__(self):
         if self.data is None:
             self.data = {}
@@ -227,6 +241,13 @@ class SQLiteStorage:
                 agent_id TEXT,
                 tool_name TEXT,
                 tool_input_hash TEXT,
+                runtime TEXT NOT NULL DEFAULT 'claude',
+                runtime_event TEXT,
+                turn_id TEXT,
+                capture_source TEXT,
+                source_kind TEXT NOT NULL DEFAULT 'live',
+                model TEXT,
+                permission_mode TEXT,
                 duration_ms INTEGER,
                 tokens_in INTEGER,
                 tokens_out INTEGER,
@@ -338,6 +359,24 @@ class SQLiteStorage:
                 FOREIGN KEY (session_id) REFERENCES sessions(id)
             );
         """)
+        # CREATE TABLE IF NOT EXISTS does not evolve existing installations.
+        # Keep hook-time migration additive so a newly installed runtime edge
+        # can safely write to years-old project databases on its first event.
+        columns = {row[1] for row in self.conn.execute("PRAGMA table_info(events)")}
+        additions = {
+            "runtime": "TEXT NOT NULL DEFAULT 'claude'",
+            "runtime_event": "TEXT",
+            "turn_id": "TEXT",
+            "capture_source": "TEXT",
+            "source_kind": "TEXT NOT NULL DEFAULT 'live'",
+            "model": "TEXT",
+            "permission_mode": "TEXT",
+        }
+        for name, declaration in additions.items():
+            if name not in columns:
+                self.conn.execute(f"ALTER TABLE events ADD COLUMN {name} {declaration}")
+        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_events_runtime ON events(runtime)")
+        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_events_turn ON events(turn_id)")
         self.conn.commit()
 
     def insert_session(self, session: Session, commit: bool = True) -> None:
@@ -388,8 +427,8 @@ class SQLiteStorage:
 
         task-508 Phase 1.4 — also writes 4 additive columns
         (persona, agent_id, tool_name, tool_input_hash) when present on the
-        Event. duration_ms/tokens_in/tokens_out/cost_usd remain NULL until
-        backfill or per-event derivation runs.
+        Event, including optional duration/token/cost measurements supplied by
+        richer runtimes and archive projectors.
         """
         with self._write_lock:
             try:
@@ -398,8 +437,10 @@ class SQLiteStorage:
                     """
                     INSERT INTO events
                     (id, session_id, type, ts, agent_session_num, data, content,
-                     persona, agent_id, tool_name, tool_input_hash)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     persona, agent_id, tool_name, tool_input_hash, runtime,
+                     runtime_event, turn_id, capture_source, source_kind, model, permission_mode,
+                     duration_ms, tokens_in, tokens_out, cost_usd)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                     (
                         event.id,
@@ -413,6 +454,17 @@ class SQLiteStorage:
                         event.agent_id,
                         event.tool_name,
                         event.tool_input_hash,
+                        event.runtime,
+                        event.runtime_event,
+                        event.turn_id,
+                        event.capture_source,
+                        event.source_kind,
+                        event.model,
+                        event.permission_mode,
+                        event.duration_ms,
+                        event.tokens_in,
+                        event.tokens_out,
+                        event.cost_usd,
                     ),
                 )
                 if commit:

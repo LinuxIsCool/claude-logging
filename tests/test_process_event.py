@@ -58,6 +58,15 @@ class TestBasicEventCapture:
         assert result["content"] == "Hello Claude"
         events = _read_session_events(event_env, "test-002")
         assert any(e["type"] == "UserPromptSubmit" for e in events)
+        import sqlite3
+
+        con = sqlite3.connect(event_env / "db" / "logging.db")
+        stored = con.execute(
+            "SELECT type, content FROM events WHERE session_id = ?",
+            ("test-002",),
+        ).fetchall()
+        con.close()
+        assert ("UserPromptSubmit", "Hello Claude") in stored
 
     def test_pre_tool_use(self, event_env):
         data = {"session_id": "test-003", "data": {"tool_name": "Read", "tool_input": {"file_path": "/tmp/x.py"}}}
@@ -73,7 +82,7 @@ class TestBasicEventCapture:
         """Stop without transcript_path should write normally."""
         data = {"session_id": "test-005", "data": {}}
         result = process_event("Stop", data)
-        assert result["content"] == "Claude finished responding"
+        assert result["content"] == "Agent finished responding"
 
     def test_session_end(self, event_env):
         data = {"session_id": "test-006", "data": {}}
@@ -142,6 +151,63 @@ class TestStopWithTranscript:
         assert "AssistantResponse" in types
         response_evt = next(e for e in events if e["type"] == "AssistantResponse")
         assert "Here is my response" in response_evt["content"]
+
+
+class TestRuntimeProvenance:
+    """Runtime adapters retain native identity without forking storage."""
+
+    def test_codex_prompt_is_written_with_provenance(self, event_env):
+        payload = {
+            "_runtime": "codex",
+            "_capture_source": "codex-hook",
+            "hook_event_name": "UserPromptSubmit",
+            "session_id": "codex-session",
+            "turn_id": "turn-42",
+            "model": "gpt-5.6",
+            "permission_mode": "never",
+            "prompt": "Port the logging plugin",
+        }
+
+        result = process_event("UserPromptSubmit", payload)
+
+        assert result["runtime"] == "codex"
+        assert result["turn_id"] == "turn-42"
+        assert result["capture_source"] == "codex-hook"
+        import sqlite3
+
+        con = sqlite3.connect(event_env / "db" / "logging.db")
+        stored = con.execute(
+            """SELECT runtime, runtime_event, turn_id, capture_source, model,
+                      permission_mode
+               FROM events WHERE id = ?""",
+            (result["id"],),
+        ).fetchone()
+        con.close()
+        assert stored == (
+            "codex",
+            "UserPromptSubmit",
+            "turn-42",
+            "codex-hook",
+            "gpt-5.6",
+            "never",
+        )
+
+    def test_codex_stop_uses_inline_assistant_message(self, event_env):
+        process_event(
+            "Stop",
+            {
+                "_runtime": "codex",
+                "session_id": "codex-stop",
+                "turn_id": "turn-99",
+                "last_assistant_message": "The Codex response is complete.",
+            },
+        )
+
+        events = _read_session_events(event_env, "codex-stop")
+        response = next(event for event in events if event["type"] == "AssistantResponse")
+        assert response["content"] == "The Codex response is complete."
+        assert response["runtime"] == "codex"
+        assert response["turn_id"] == "turn-99"
 
 
 class TestSubagentStopEnrichment:

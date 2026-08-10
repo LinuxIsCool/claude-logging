@@ -143,7 +143,9 @@ class TestSessionEvents:
         assert extract_content("SessionEnd", {}) == "Session ended"
 
     def test_stop(self):
-        assert extract_content("Stop", {}) == "Claude finished responding"
+        # Stop is shared by every runtime adapter; the normalized content must
+        # not claim the responding actor was necessarily Claude.
+        assert extract_content("Stop", {}) == "Agent finished responding"
 
     def test_pre_compact(self):
         assert extract_content("PreCompact", {}) == "Context compaction starting"

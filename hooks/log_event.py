@@ -238,6 +238,19 @@ def extract_content(event_type: str, data: dict) -> str | None:
     elif event_type in ("AssistantResponse", "assistant"):
         return data.get("response", data.get("content", ""))
 
+    elif event_type == "Reasoning":
+        return data.get("reasoning", data.get("content", ""))
+
+    elif event_type == "SessionInfo":
+        return data.get("name", "")
+
+    elif event_type == "ModelChange":
+        model = data.get("model", "")
+        return model if isinstance(model, str) else json.dumps(model, default=str)
+
+    elif event_type == "ThinkingLevelChange":
+        return str(data.get("level", ""))
+
     elif event_type == "PreToolUse":
         tool_name = data.get("tool_name", "Unknown")
         tool_input = data.get("tool_input", {})
@@ -300,7 +313,7 @@ def extract_content(event_type: str, data: dict) -> str | None:
         return "Session ended"
 
     elif event_type == "Stop":
-        return "Claude finished responding"
+        return "Agent finished responding"
 
     elif event_type == "PreCompact":
         return "Context compaction starting"
@@ -786,7 +799,14 @@ def generate_markdown(jsonl_path: Path, md_path: Path, session_id: str) -> None:
 
 def process_event(event_type: str, stdin_data: dict) -> dict:
     """Process a hook event and return the structured event."""
-    # Get cwd from hook data - this is where Claude Code is running
+    # Runtime adapters annotate the native payload before it reaches this
+    # shared capture core. Unannotated legacy hooks remain Claude captures.
+    runtime = str(stdin_data.get("_runtime") or stdin_data.get("runtime") or "claude").lower()
+    runtime_event = str(stdin_data.get("hook_event_name") or event_type)
+    capture_source = str(stdin_data.get("_capture_source") or f"{runtime}-hook")
+    source_kind = str(stdin_data.get("_source_kind") or "live").lower()
+
+    # Get cwd from hook data - this is where the agent harness is running.
     cwd = stdin_data.get("cwd") or stdin_data.get("data", {}).get("cwd")
     storage_path = get_storage_path(cwd)
     session_id = stdin_data.get("session_id", "unknown")
@@ -811,7 +831,27 @@ def process_event(event_type: str, stdin_data: dict) -> dict:
         "session_id": session_id,
         "agent_session_num": agent_session_num,
         "data": data,
+        "runtime": runtime,
+        "runtime_event": runtime_event,
+        "capture_source": capture_source,
+        "source_kind": source_kind,
     }
+    for key in ("turn_id", "model", "permission_mode"):
+        value = stdin_data.get(key)
+        if value is not None:
+            event[key] = str(value)
+    for key in ("duration_ms", "tokens_in", "tokens_out", "cost_usd"):
+        value = stdin_data.get(key)
+        if value is None and isinstance(data, dict):
+            value = data.get(key)
+        if value is not None:
+            event[key] = value
+
+    # All runtime adapters converge on one stable minimum envelope. Validate
+    # at the shared boundary so a future Pi/Hermes adapter cannot silently
+    # create records that the index and WebUI cannot interpret.
+    from lib.event_contract import validate_event_v1
+    validate_event_v1(event)
 
     # task-508 Phase 1.4 — additive capture-time enrichment
     # Populate persona / agent_id / tool_name / tool_input_hash when
@@ -895,12 +935,15 @@ def process_event(event_type: str, stdin_data: dict) -> dict:
     # - Write both events in a single file operation
     # - No retry delays needed (transcript is already written by Claude Code)
     # - No deduplication needed (simpler = more reliable)
-    if event_type == "Stop" and isinstance(data, dict) and data.get("transcript_path"):
-        transcript_path = data["transcript_path"]
+    if event_type == "Stop" and isinstance(data, dict):
+        transcript_path = data.get("transcript_path", "")
         events_to_write = [event]
 
-        # Capture response immediately - transcript should already be written
-        response = get_response(transcript_path)
+        # Codex supplies the completed response directly. Claude's hook uses
+        # the transcript path. Keep transcript-format knowledge at the edge.
+        response = data.get("last_assistant_message", "")
+        if not response and transcript_path:
+            response = get_response(transcript_path)
         if response:
             assistant_event = {
                 "id": f"evt_{uuid.uuid4().hex[:12]}",
@@ -910,6 +953,13 @@ def process_event(event_type: str, stdin_data: dict) -> dict:
                 "agent_session_num": agent_session_num,
                 "data": {"response": response},
                 "content": response,
+                "runtime": runtime,
+                "runtime_event": "AssistantResponse",
+                "capture_source": capture_source,
+                "source_kind": source_kind,
+                **({"turn_id": event["turn_id"]} if "turn_id" in event else {}),
+                **({"model": event["model"]} if "model" in event else {}),
+                **({"permission_mode": event["permission_mode"]} if "permission_mode" in event else {}),
                 # task-508 Phase 1.4 — inherit persona/agent_id from parent event
                 **({"persona": event["persona"]} if "persona" in event else {}),
                 **({"agent_id": event["agent_id"]} if "agent_id" in event else {}),
@@ -922,14 +972,15 @@ def process_event(event_type: str, stdin_data: dict) -> dict:
         # Extract images from transcript and update prior UserPromptSubmit events
         # Claude Code doesn't pass image data to hooks, so we extract from the
         # transcript after the conversation turn is complete
-        try:
-            image_refs_by_msg = extract_images_from_transcript(
-                transcript_path, storage_path, session_id, log_error=log_error
-            )
-            if image_refs_by_msg:
-                update_session_with_images(session_path, image_refs_by_msg)
-        except Exception as e:
-            log_error(e, "ImageExtractionFromTranscript")
+        if transcript_path:
+            try:
+                image_refs_by_msg = extract_images_from_transcript(
+                    transcript_path, storage_path, session_id, log_error=log_error
+                )
+                if image_refs_by_msg:
+                    update_session_with_images(session_path, image_refs_by_msg)
+            except Exception as e:
+                log_error(e, "ImageExtractionFromTranscript")
     else:
         # Non-Stop events: write normally
         append_event(session_path, event)
@@ -947,11 +998,11 @@ def process_event(event_type: str, stdin_data: dict) -> dict:
         with contextlib.suppress(Exception):
             generate_markdown(session_path, md_path, session_id)
 
-    # Incremental SQLite sync on turn boundaries (keeps FTS5 index fresh)
-    # - Stop/SubagentStop/PostCompact: sync current session only (fast, mid-session)
-    # - SessionEnd: sync ALL sessions to catch any that fell through the cracks
-    # - SessionStart: sync ALL sessions as a startup catch-up (prevents drift)
-    if event_type in ("Stop", "SubagentStop", "PostCompact"):
+    # Incremental SQLite sync after every captured event. JSONL remains the
+    # canonical archive, while SQLite is the live read model used by the WebUI.
+    # Deferring sync until Stop made active sessions appear empty for minutes
+    # or hours. Session boundaries still sync all archives as a repair net.
+    if event_type not in ("SessionStart", "SessionEnd"):
         try:
             from lib.storage import StorageManager
 

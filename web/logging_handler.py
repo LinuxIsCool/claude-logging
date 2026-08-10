@@ -28,6 +28,13 @@ class LoggingHandler(WebuiHandler):
         params_raw = parse_qs(parsed.query, keep_blank_values=True)
         params = {k: v[0] if v else "" for k, v in params_raw.items()}
 
+        # Session details are first-class browser locations. Serve the SPA
+        # shell for both the catalog and individual permalinks; client-side
+        # routing resolves the session id without sacrificing reloadability.
+        if path == "/sessions" or path.startswith("/sessions/"):
+            self._serve_index()
+            return
+
         if path == "/api/prompts":
             try:
                 payload = self.accessor.prompts(params)  # type: ignore[attr-defined]
@@ -49,6 +56,15 @@ class LoggingHandler(WebuiHandler):
         if path == "/api/transcript":
             try:
                 payload = self.accessor.transcript(params)  # type: ignore[attr-defined]
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": str(exc)}, status=500)
+                return
+            self._send_json(payload)
+            return
+
+        if path == "/api/event":
+            try:
+                payload = self.accessor.event_detail(params)  # type: ignore[attr-defined]
             except Exception as exc:  # noqa: BLE001
                 self._send_json({"error": str(exc)}, status=500)
                 return

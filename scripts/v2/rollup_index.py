@@ -31,6 +31,12 @@ import sys
 import time
 from pathlib import Path
 
+PLUGIN_ROOT = Path(__file__).resolve().parents[2]
+if str(PLUGIN_ROOT) not in sys.path:
+    sys.path.insert(0, str(PLUGIN_ROOT))
+
+from lib.token_meter import is_synthetic
+
 LOGGING_ROOT = Path.home() / ".claude" / "local" / "logging"
 INDEX_DB = LOGGING_ROOT / "_index" / "index.db"
 HOSTNAME = platform.node()
@@ -38,15 +44,84 @@ HOSTNAME = platform.node()
 CONTENT_PREVIEW_LEN = 200
 
 
+def ensure_index_schema(idx_con: sqlite3.Connection) -> int:
+    """Add and backfill rebuildable classification fields on older indices."""
+    columns = {row[1] for row in idx_con.execute("PRAGMA table_info(events_index)")}
+    added = "is_synthetic" not in columns
+    if added:
+        idx_con.execute(
+            "ALTER TABLE events_index ADD COLUMN is_synthetic INTEGER DEFAULT 0"
+        )
+    additions = {
+        "runtime": "TEXT NOT NULL DEFAULT 'claude'",
+        "runtime_event": "TEXT",
+        "turn_id": "TEXT",
+        "capture_source": "TEXT",
+        "source_kind": "TEXT NOT NULL DEFAULT 'live'",
+        "model": "TEXT",
+        "permission_mode": "TEXT",
+    }
+    for name, declaration in additions.items():
+        if name not in columns:
+            idx_con.execute(
+                f"ALTER TABLE events_index ADD COLUMN {name} {declaration}"
+            )
+    idx_con.execute(
+        "CREATE INDEX IF NOT EXISTS idx_events_index_synthetic "
+        "ON events_index(is_synthetic)"
+    )
+    idx_con.execute(
+        "CREATE INDEX IF NOT EXISTS idx_events_index_runtime ON events_index(runtime)"
+    )
+    idx_con.execute(
+        "CREATE INDEX IF NOT EXISTS idx_events_index_turn ON events_index(turn_id)"
+    )
+    idx_con.execute(
+        "CREATE INDEX IF NOT EXISTS idx_events_index_source_kind ON events_index(source_kind)"
+    )
+    idx_con.execute(
+        "CREATE INDEX IF NOT EXISTS idx_events_index_session_type_ts "
+        "ON events_index(session_id, type, ts)"
+    )
+    if not added:
+        return 0
+
+    changed = 0
+    rows = idx_con.execute(
+        "SELECT event_id, content_preview, is_synthetic FROM events_index "
+        "WHERE type = 'UserPromptSubmit'"
+    ).fetchall()
+    for event_id, content, current in rows:
+        wanted = 1 if is_synthetic(content or "") else 0
+        if wanted != (current or 0):
+            idx_con.execute(
+                "UPDATE events_index SET is_synthetic = ? WHERE event_id = ?",
+                (wanted, event_id),
+            )
+            changed += 1
+    return changed
+
+
 def discover_dbs() -> list[tuple[str, Path]]:
-    """Return (slug, db_path) pairs."""
+    """Return event-store shards, excluding token-meter-only databases."""
     out = []
     for slug_dir in sorted(LOGGING_ROOT.iterdir()):
         if not slug_dir.is_dir() or slug_dir.name == "_index":
             continue
         db = slug_dir / "db" / "logging.db"
         if db.exists() and db.stat().st_size > 0:
-            out.append((slug_dir.name, db))
+            try:
+                con = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=1.0)
+                has_events = con.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='events'"
+                ).fetchone()
+                con.close()
+                if has_events:
+                    out.append((slug_dir.name, db))
+            except sqlite3.Error:
+                # A genuinely unreadable shard is retained for the per-project
+                # doctor to report; rollup must keep processing healthy shards.
+                continue
     return out
 
 
@@ -64,26 +139,52 @@ def rollup_project(idx_con: sqlite3.Connection, slug: str, db_path: Path) -> tup
     proj_con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=30.0)
     proj_con.row_factory = sqlite3.Row
 
-    if last_ts:
-        cursor = proj_con.execute(
-            "SELECT id, session_id, type, ts, persona, content FROM events "
-            "WHERE ts > ? ORDER BY ts ASC",
-            (last_ts,),
+    project_columns = {
+        row[1] for row in proj_con.execute("PRAGMA table_info(events)")
+    }
+    provenance = {
+        "runtime": "'claude' AS runtime",
+        "runtime_event": "type AS runtime_event",
+        "turn_id": "NULL AS turn_id",
+        "capture_source": "'claude-hook' AS capture_source",
+        "source_kind": "'live' AS source_kind",
+        "model": "NULL AS model",
+        "permission_mode": "NULL AS permission_mode",
+    }
+    provenance_select = ", ".join(
+        name if name in project_columns else fallback
+        for name, fallback in provenance.items()
+    )
+    base_select = (
+        "SELECT id, session_id, type, ts, persona, content, "
+        f"{provenance_select} FROM events"
+    )
+
+    # Timestamp-only cursors permanently miss historical rows inserted by a
+    # backfill. Reconcile source IDs as well, while still replacing any rows
+    # newer than the high-water timestamp.
+    indexed_ids = {
+        row[0] for row in idx_con.execute(
+            "SELECT event_id FROM events_index WHERE project_slug = ?", (slug,)
         )
-    else:
-        cursor = proj_con.execute(
-            "SELECT id, session_id, type, ts, persona, content FROM events ORDER BY ts ASC"
-        )
+    }
+    cursor = proj_con.execute(base_select + " ORDER BY ts ASC")
 
     new_rows = []
     fts_rows = []
     max_ts = last_ts
     for row in cursor:
+        if last_ts and row["ts"] <= last_ts and row["id"] in indexed_ids:
+            continue
         content_preview = (row["content"] or "")[:CONTENT_PREVIEW_LEN]
         has_full = 1 if (row["content"] and len(row["content"]) > CONTENT_PREVIEW_LEN) else 0
         new_rows.append((
             row["id"], slug, row["session_id"], row["type"], row["ts"],
             row["persona"], content_preview, has_full,
+            1 if row["type"] == "UserPromptSubmit" and is_synthetic(content_preview) else 0,
+            row["runtime"], row["runtime_event"], row["turn_id"],
+            row["capture_source"], row["model"], row["permission_mode"],
+            row["source_kind"],
         ))
         fts_rows.append((
             row["id"], slug, row["session_id"], row["type"],
@@ -99,10 +200,26 @@ def rollup_project(idx_con: sqlite3.Connection, slug: str, db_path: Path) -> tup
 
     idx_con.executemany(
         "INSERT OR REPLACE INTO events_index "
-        "(event_id, project_slug, session_id, type, ts, persona, content_preview, has_full_content) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "(event_id, project_slug, session_id, type, ts, persona, content_preview, "
+        "has_full_content, is_synthetic, runtime, runtime_event, turn_id, "
+        "capture_source, model, permission_mode, source_kind) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         new_rows,
     )
+    # Contentless FTS5 tables have no uniqueness constraint on event_id, so
+    # INSERT OR REPLACE alone appends duplicates. Remove every prior mirror
+    # row for the refreshed IDs before inserting their current projection.
+    if indexed_ids and not last_ts:
+        # A writer may have populated the project before its checkpoint was
+        # committed (for example an overlapping full rebuild and daemon
+        # startup reconcile). Replace its mirror in one scan rather than one
+        # unindexed FTS DELETE per event.
+        idx_con.execute("DELETE FROM events_index_fts WHERE project_slug = ?", (slug,))
+    elif indexed_ids:
+        idx_con.executemany(
+            "DELETE FROM events_index_fts WHERE event_id = ?",
+            ((row[0],) for row in new_rows if row[0] in indexed_ids),
+        )
     idx_con.executemany(
         "INSERT OR REPLACE INTO events_index_fts "
         "(event_id, project_slug, session_id, type, persona, content_preview) "
@@ -151,6 +268,9 @@ def main() -> int:
         return 1
 
     idx_con = sqlite3.connect(INDEX_DB, timeout=30.0)
+    reclassified = ensure_index_schema(idx_con)
+    if reclassified and not args.quiet:
+        print(f"Reclassified {reclassified:,} existing synthetic prompts")
 
     if args.reset:
         print("RESET: truncating events_index, events_index_fts, rollup_state")

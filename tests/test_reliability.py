@@ -70,8 +70,8 @@ class TestEventSchemaEvolution:
         """_EVENT_FIELDS should contain all Event dataclass fields.
 
         task-508 Phase 1.4 additive fields: persona, agent_id, tool_name,
-        tool_input_hash. Backfill targets duration_ms/tokens/cost which
-        live as DB columns only (not Event fields yet).
+        tool_input_hash. Rich runtime adapters may also populate the additive
+        duration/token/cost measurements at capture or projection time.
         """
         from lib.storage import _EVENT_FIELDS
 
@@ -80,6 +80,12 @@ class TestEventSchemaEvolution:
             "data", "content", "images",
             # task-508 Phase 1.4 additive
             "persona", "agent_id", "tool_name", "tool_input_hash",
+            # Harness-neutral provenance. These fields preserve the canonical
+            # event type while retaining the source runtime's native identity.
+            "runtime", "runtime_event", "turn_id", "capture_source",
+            "model", "permission_mode",
+            "source_kind",
+            "duration_ms", "tokens_in", "tokens_out", "cost_usd",
         }
         assert expected == _EVENT_FIELDS
 

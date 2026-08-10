@@ -5,43 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>claude-logging — Legion observability</title>
 <link rel="icon" href='data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="%231e1e2e"/><text x="50%25" y="62%25" text-anchor="middle" font-size="20" fill="%23cba6f7" font-family="monospace">%E2%97%89</text></svg>' />
-<script src="https://cdn.tailwindcss.com"></script>
-<script>
-  tailwind.config = {
-    theme: {
-      extend: {
-        fontFamily: {
-          'pixel': ['"Press Start 2P"', 'monospace'],
-          'mono': ['"JetBrains Mono"', 'monospace'],
-        },
-        colors: {
-          // Catppuccin Mocha
-          base: '#1e1e2e', mantle: '#181825', crust: '#11111b',
-          surface0: '#313244', surface1: '#45475a', surface2: '#585b70',
-          text: '#cdd6f4', subtext0: '#a6adc8', subtext1: '#bac2de',
-          overlay0: '#6c7086', overlay1: '#7f849c', overlay2: '#9399b2',
-          rosewater: '#f5e0dc', flamingo: '#f2cdcd', pink: '#f5c2e7',
-          mauve: '#cba6f7', red: '#f38ba8', maroon: '#eba0ac',
-          peach: '#fab387', yellow: '#f9e2af', green: '#a6e3a1',
-          teal: '#94e2d5', sky: '#89dceb', sapphire: '#74c7ec',
-          blue: '#89b4fa', lavender: '#b4befe',
-        },
-        animation: {
-          'fade-in': 'fadeIn 0.2s ease-out',
-          'pulse-glow': 'pulseGlow 0.8s ease-out',
-        },
-      },
-    },
-  };
-</script>
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Press+Start+2P&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="/static/tailwind.css" />
+<link rel="stylesheet" href="/static/fonts/fonts.css" />
 <style>
   @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
-  @keyframes pulseGlow { 0% { box-shadow: 0 0 0 1px rgba(203,166,247,0.8); } 100% { box-shadow: 0 0 0 1px transparent; } }
+  @keyframes pulseGlow { 0% { box-shadow: 0 0 0 1px rgba(166,227,161,0.8); } 100% { box-shadow: 0 0 0 1px transparent; } }
   body { font-family: 'JetBrains Mono', monospace; background: #1e1e2e; color: #cdd6f4; }
   .font-pixel { font-family: 'Press Start 2P', monospace; letter-spacing: 0.04em; }
+  .text-mauve { color:#a6e3a1 !important; }
   /* Persona color rails (3-px left border on cards) */
   .persona-rail { width: 3px; flex-shrink: 0; }
   .persona-matt { background: #cba6f7; }
@@ -51,7 +22,7 @@
   .persona-claude { background: #6c7086; }
   /* Card surface */
   .card { background: #181825; border: 1px solid #313244; border-radius: 6px; transition: border-color 0.15s; }
-  .card:hover { border-color: #45475a; }
+  .card:hover { border-color: #a6e3a166; }
   /* View-nav item */
   .view-nav-item {
     display: flex; align-items: center; gap: 0.5rem;
@@ -60,8 +31,8 @@
     font-size: 0.65rem; letter-spacing: 0.04em;
     color: #a6adc8; transition: all 0.15s;
   }
-  .view-nav-item:hover { background: rgba(203,166,247,0.08); color: #b4befe; }
-  .view-nav-item.active { background: rgba(203,166,247,0.15); color: #cba6f7; }
+  .view-nav-item:hover { background: rgba(166,227,161,0.08); color: #a6e3a1; }
+  .view-nav-item.active { background: rgba(166,227,161,0.15); color: #a6e3a1; }
   .view-nav-item .glyph { font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; opacity: 0.7; }
   .view-nav-item.active .glyph { opacity: 1; }
   /* Scrollbar */
@@ -83,7 +54,7 @@
     padding: 0.4rem 0.6rem; border-radius: 4px; outline: none;
     font-family: 'JetBrains Mono', monospace; font-size: 0.85rem;
   }
-  input.txt:focus, select.txt:focus { border-color: #cba6f7; }
+  input.txt:focus, select.txt:focus { border-color: #a6e3a1; }
   /* Badge */
   .badge {
     display: inline-block; padding: 0.125rem 0.5rem; border-radius: 9999px;
@@ -98,6 +69,85 @@
   .empty { padding: 4rem 2rem; text-align: center; color: #6c7086; }
   /* Live pulse on freshly arrived elements */
   .live-pulse { animation: pulseGlow 0.8s ease-out; }
+  body.session-explorer #left-nav, body.session-explorer #detail-panel { display: none !important; }
+  body.session-explorer #main-view { grid-column: 1 / -1; }
+  .session-shell { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 0.75rem; align-items: start; }
+  .session-document { min-width:0; }
+  .session-map, .session-inspector { position: sticky; top: 80px; max-height: calc(100vh - 100px); overflow: auto; }
+  .session-header { position:relative; overflow:hidden; border-color:#a6e3a133; background:#181825; box-shadow:0 8px 24px #0003; }
+  .session-masthead { padding:16px 18px 13px; background:linear-gradient(120deg,#a6e3a10d,transparent 55%); }
+  .session-breadcrumbs { display:flex; align-items:center; gap:7px; color:#6c7086; font-size:.62rem; margin-bottom:10px; }
+  .session-page-breadcrumbs { margin:0 0 12px; padding:0 4px; }
+  .session-breadcrumbs button { color:#89b4fa; }.session-breadcrumbs button:hover{color:#a6e3a1}
+  .session-detail-title { color:#a6e3a1; font-size:1.12rem; line-height:1.4; font-weight:700; letter-spacing:.01em; }
+  .session-detail-description { max-width:100ch; margin-top:7px; color:#bac2de; font:12px/1.58 system-ui,sans-serif; }
+  .session-detail-meta { display:flex; align-items:center; gap:7px; flex-wrap:wrap; margin-top:11px; }
+  .session-controls { display:flex; align-items:center; gap:5px; flex-wrap:wrap; padding:9px 12px; border-top:1px solid #313244; background:#11111b88; }
+  .timeline-event { scroll-margin-top: 150px; }
+  .timeline-event.selected { border-color:#cba6f7; background:linear-gradient(110deg,#cba6f71c,#cba6f70a 65%,transparent); box-shadow:0 0 0 1px #cba6f766,0 0 24px #cba6f72e,inset 3px 0 #cba6f7; }
+  .timeline-event.compact .event-body { max-height: 3rem; overflow: hidden; }
+  .session-map { padding:7px; background:#181825; }
+  .session-map-title { padding:9px 10px 10px; color:#a6e3a1; font:8px 'Press Start 2P',monospace; letter-spacing:.07em; border-bottom:1px solid #313244; }
+  .session-map-link { display:grid; grid-template-columns:16px minmax(0,1fr); gap:6px; width:100%; text-align:left; padding:9px 8px; border-bottom:1px solid #31324488; color:#a6adc8; font:10px/1.45 'JetBrains Mono',monospace; }
+  .session-map-link:last-child { border-bottom:0; }.session-map-link:hover{background:#1e1e30;color:#cdd6f4}.session-map-link.active{background:#cba6f719;color:#f5e8ff;box-shadow:inset 3px 0 #cba6f7,0 0 14px #cba6f71f}
+  .session-map-link.in-viewport { background:#89b4fa12; color:#cdd6f4; box-shadow:inset 3px 0 #89b4fa; }
+  .session-map-link.in-viewport.active { background:#cba6f724; box-shadow:inset 3px 0 #cba6f7,0 0 14px #cba6f72b; }
+  .session-map-glyph.user{color:#89b4fa}.session-map-glyph.assistant{color:#a6e3a1}.session-map-copy{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden}
+  .inspector-json { white-space: pre-wrap; word-break: break-word; font-size: .68rem; line-height: 1.45; color: #a6adc8; }
+  .message-detail { max-width:1100px; margin:0 auto; }
+  .message-detail-content { padding:24px 28px; color:#cdd6f4; font:15px/1.75 system-ui,sans-serif; }
+  .message-detail-metadata { padding:18px 22px; border-top:1px solid #313244; background:#11111b88; }
+  /* Session collection: trading-card reader + dense table, shared with the
+     Agents and Ventures view-switch convention. */
+  .session-toolbar { display:flex; gap:.6rem; align-items:center; flex-wrap:wrap; margin-bottom:1rem; }
+  .session-toolbar .session-search { flex:1; min-width:240px; }
+  .view-switch { display:inline-flex; padding:3px; border:1px solid #313244; border-radius:8px; background:#11111b; }
+  .view-button { border:0; border-radius:6px; background:transparent; color:#7f849c; padding:.42rem .65rem; cursor:pointer; font-size:.72rem; }
+  .view-button:hover { color:#cdd6f4; }
+  .view-button.active { color:#a6e3a1; background:#313244; box-shadow:inset 0 0 0 1px #a6e3a133; }
+  .session-card-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(390px,1fr)); gap:1rem; }
+  .session-deck-card { display:grid; grid-template-rows:auto auto auto; overflow:hidden; border:1px solid #45475a; border-radius:15px; background:linear-gradient(145deg,#1e1e2e,#181825 58%,#11111b); box-shadow:0 10px 30px #0005,inset 0 0 0 3px #11111b; }
+  .session-deck-card:hover { border-color:#a6e3a188; transform:translateY(-2px); }
+  .session-card-head { padding:14px 15px 11px; border-bottom:1px solid #313244; background:linear-gradient(90deg,#a6e3a10d,transparent); }
+  .session-card-title { color:#a6e3a1; font-weight:700; line-height:1.35; margin-top:8px; }
+  .session-card-description { margin-top:6px; color:#a6adc8; font:11px/1.5 system-ui,sans-serif; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:3; overflow:hidden; }
+  .session-card-transcript { padding:7px 14px; background:#11111b99; }
+  .session-card-foot { padding:10px 14px; border-top:1px solid #313244; background:#181825; }
+  .session-card-properties { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:1px; border:1px solid #313244; border-radius:7px; overflow:hidden; }
+  .session-card-property { min-width:0; padding:7px 8px; background:#11111b; }
+  .session-card-property b { display:block; color:#cdd6f4; font-size:.68rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .session-card-property span { display:block; color:#6c7086; font-size:.52rem; letter-spacing:.08em; text-transform:uppercase; margin-top:2px; }
+  .session-message { margin:3px 0; padding:10px 12px; border:1px solid transparent; border-bottom-color:#31324499; border-radius:8px; transition:background .16s ease,border-color .16s ease,box-shadow .16s ease; }
+  .session-message:last-child:not(.selected) { border-bottom-color:transparent; }
+  .session-message-role { color:#89b4fa; font-size:.58rem; letter-spacing:.1em; text-transform:uppercase; margin-bottom:6px; }
+  .session-message.assistant .session-message-role { color:#a6e3a1; }
+  .session-excerpt { border-bottom:1px solid #31324499; }
+  .session-excerpt:last-child { border-bottom:0; }
+  .session-excerpt summary { position:relative; list-style:none; cursor:pointer; padding:10px 2px 10px 19px; color:#bac2de; font:11px/1.55 system-ui,sans-serif; }
+  .session-excerpt summary::-webkit-details-marker { display:none; }
+  .session-excerpt summary::before { position:absolute; left:1px; top:11px; font:9px 'JetBrains Mono',monospace; }
+  .session-excerpt.user summary::before { content:'▶'; color:#89b4fa; }
+  .session-excerpt.assistant summary::before { content:'◆'; color:#a6e3a1; }
+  .session-excerpt.user[open] summary::before { content:'▼'; }
+  .session-excerpt.user .session-excerpt-label { color:#89b4fa; }
+  .session-excerpt.assistant .session-excerpt-label { color:#a6e3a1; }
+  .session-excerpt-label { display:block; color:#6c7086; font:8px 'JetBrains Mono',monospace; letter-spacing:.1em; text-transform:uppercase; margin-bottom:4px; }
+  .session-excerpt-full { padding:0 2px 12px 19px; }
+  .session-reader-scroll { min-height:60vh; overflow:visible; padding:14px 18px; background:#11111b99; }
+  .markdown { color:#bac2de; font:12px/1.62 system-ui,sans-serif; overflow-wrap:anywhere; }
+  .markdown p { margin:.45em 0; }.markdown p:first-child{margin-top:0}.markdown p:last-child{margin-bottom:0}
+  .markdown h1,.markdown h2,.markdown h3 { color:#cdd6f4; font-weight:650; margin:.8em 0 .35em; line-height:1.3; }
+  .markdown h1{font-size:1.2em}.markdown h2{font-size:1.1em}.markdown h3{font-size:1em}
+  .markdown ul,.markdown ol { padding-left:1.4rem; margin:.5em 0; }.markdown ul{list-style:disc}.markdown ol{list-style:decimal}
+  .markdown code { color:#94e2d5; background:#1e1e2e; border-radius:3px; padding:.08rem .25rem; font:11px/1.5 'JetBrains Mono',monospace; }
+  .markdown pre { overflow:auto; padding:9px; border:1px solid #313244; border-radius:6px; background:#0b0b12; }.markdown pre code{padding:0;background:transparent}
+  .markdown blockquote { margin:.55em 0; padding-left:.75rem; border-left:3px solid #a6e3a166; color:#a6adc8; }
+  .session-table-wrap { overflow:auto; border:1px solid #313244; border-radius:10px; background:#181825; }
+  .session-table { width:100%; min-width:920px; border-collapse:collapse; font-size:.72rem; }
+  .session-table th { position:sticky; top:0; z-index:2; padding:10px 12px; background:#181825; color:#6c7086; text-align:left; text-transform:uppercase; letter-spacing:.08em; font-size:.58rem; }
+  .session-table td { padding:11px 12px; border-top:1px solid #313244; color:#a6adc8; }
+  .session-table tr { cursor:pointer; }.session-table tbody tr:hover{background:#1e1e30}.session-table .session-name{color:#a6e3a1;font-weight:600;max-width:360px}
+  @media(max-width:600px){.session-card-grid{grid-template-columns:1fr}.session-card-properties{grid-template-columns:repeat(2,1fr)}}
   /* Mobile sidebar */
   .scrim-open #left-nav { transform: translateX(0); }
   @media (max-width: 1024px) {
@@ -105,6 +155,9 @@
                 transform: translateX(-100%); transition: transform 0.2s ease;
                 z-index: 50; background: #181825; padding: 1rem; overflow-y: auto; }
     #detail-panel { display: none; }
+    .session-shell { grid-template-columns: 1fr; }
+    .session-map, .session-inspector { position: static; max-height: none; }
+    .session-map { display: none; }
   }
 </style>
 </head>
@@ -115,13 +168,26 @@
 <div id="mobile-scrim" class="hidden fixed inset-0 bg-black/60 z-40 lg:hidden" data-action="close-sidebar"></div>
 
 <!-- Header -->
-<header id="app-header" class="border-b border-surface0 bg-mantle sticky top-0 z-30">
+<header id="app-header" class="border-b border-surface0 bg-mantle">
   <div class="max-w-[1800px] mx-auto px-4 py-3 flex flex-wrap items-center gap-4">
     <button id="sidebar-toggle" class="lg:hidden text-subtext0 hover:text-text text-xl" data-action="open-sidebar">☰</button>
     <a id="hub-backlink" href="/home/?embedded=1" class="hidden text-green hover:text-sky text-xs font-medium shrink-0" title="back to Legion Webui Hub">← Hub</a>
-    <h1 class="font-pixel text-mauve text-sm shrink-0">claude-logging</h1>
+    <h1 class="font-pixel text-mauve text-sm shrink-0">legion-logging</h1>
     <span class="badge text-xs">v2.0.0-pre</span>
     <div class="flex-1"></div>
+    <select id="runtime-filter" class="txt text-xs">
+      <option value="">All runtimes</option>
+      <option value="claude">Claude</option>
+      <option value="codex">Codex</option>
+      <option value="pi">Pi</option>
+    </select>
+    <select id="source-kind-filter" class="txt text-xs" title="Evidence source kind">
+      <option value="">All source kinds</option>
+      <option value="live">Live</option>
+      <option value="archive">Archive</option>
+      <option value="backfill">Backfill</option>
+      <option value="synthetic">Synthetic</option>
+    </select>
     <select id="project-filter" class="txt text-xs hidden lg:block">
       <option value="">All projects</option>
     </select>
@@ -137,11 +203,11 @@
   <aside id="left-nav" class="lg:col-span-2 min-w-0">
     <div class="sticky top-[80px] space-y-3">
       <nav id="view-nav" class="rounded-lg border border-surface0 bg-mantle p-1.5 space-y-0.5">
+        <div class="view-nav-item" data-tab="sessions">
+          <span class="glyph">≡</span><span>Sessions</span>
+        </div>
         <div class="view-nav-item" data-tab="prompts">
           <span class="glyph">▸</span><span>Prompts</span>
-        </div>
-        <div class="view-nav-item" data-tab="transcript">
-          <span class="glyph">≡</span><span>Transcript</span>
         </div>
         <div class="view-nav-item" data-tab="search">
           <span class="glyph">⌕</span><span>Search</span>
@@ -200,7 +266,7 @@
 </footer>
 
 <!-- Layer-2 hub-bar from claude-webui shared static -->
-<script src="static/embedded-bar.js"></script>
+<script src="/static/embedded-bar.js"></script>
 
 <script>
 'use strict';
@@ -208,27 +274,59 @@
 const PERSONAS = ['matt', 'shawn', 'darren', 'eve', 'legion'];
 
 const state = {
-  tab: 'prompts',
+  tab: 'sessions',
   projectSlug: '',
   personaFilter: '',
+  runtimeFilter: '',
+  sourceKindFilter: '',
   prompts: [],
+  sessions: [],
+  sessionHasMore: false,
+  sessionView: 'cards',
+  sessionCatalogQuery: '',
+  sessionTranscripts: new Map(),
   searchResults: null,
+  searchQuery: '',
+  searchMode: 'prompts',
   stats: null,
   projects: [],
   currentSession: null,
+  currentTranscriptProject: '',
+  currentMessageId: '',
   currentPromptDetail: null,
   transcriptMode: 'clean',
+  selectedEventId: '',
+  sessionQuery: '',
+  sessionTypeFilter: '',
+  sessionScrollY: 0,
+  liveRefresh: false,
+  refocusSessionQuery: false,
+  catalogScrollY: 0,
+  routeGeneration: 0,
 };
 
 // ── URL / path helpers ─────────────────────────────────────────────
 
 function pathPrefix() {
-  const p = window.location.pathname;
-  if (p === '/' || p === '/index.html' || p.startsWith('/?')) return '';
-  const parts = p.split('/').filter(Boolean);
-  if (parts.length === 0) return '';
-  return '/' + parts[0];
+  const parts = window.location.pathname.split('/').filter(Boolean);
+  return parts[0] === 'logging' ? '/logging' : '';
 }
+
+function sessionUrl(sessionId, projectSlug = '') {
+  const query = projectSlug ? `?project=${encodeURIComponent(projectSlug)}` : '';
+  return `${pathPrefix()}/sessions/${encodeURIComponent(sessionId)}${query}`;
+}
+
+function sessionEventUrl(sessionId, projectSlug, eventId) {
+  return `${sessionUrl(sessionId, projectSlug)}#event-${encodeURIComponent(eventId)}`;
+}
+
+function messageUrl(sessionId, projectSlug, eventId) {
+  const query = projectSlug ? `?project=${encodeURIComponent(projectSlug)}` : '';
+  return `${pathPrefix()}/sessions/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(eventId)}${query}`;
+}
+
+function catalogUrl() { return `${pathPrefix()}/sessions`; }
 
 async function api(path, params) {
   const prefix = pathPrefix();
@@ -299,6 +397,7 @@ function renderPromptCard(p) {
       <div class="flex-1 p-3 min-w-0">
         <div class="flex items-center gap-2 text-xs mb-2 flex-wrap">
           <span class="badge ${badgeCls}">${escapeHtml(persona)}</span>
+          <span class="badge text-sky">${escapeHtml(p.runtime || 'claude')}</span>
           <span class="text-overlay1 truncate" title="${escapeHtml(p.project_slug)}">${escapeHtml(shortenSlug(p.project_slug))}</span>
           <span class="text-overlay0 ml-auto" data-age data-iso="${escapeHtml(p.ts)}">${fmtTime(p.ts)}</span>
         </div>
@@ -324,6 +423,110 @@ function renderEventRow(e) {
       ${content ? `<div class="preview text-sm">${escapeHtml(content)}</div>` : ''}
     </div>
   `;
+}
+
+function renderSessionRow(t) {
+  const tags = (t.tags || []).map(tag => `<span class="badge">${escapeHtml(tag)}</span>`).join('');
+  const runtimes = (t.runtimes || ['claude']).map(runtime => `<span class="badge text-sky">${escapeHtml(runtime)}</span>`).join('');
+  const sourceKinds = (t.source_kinds || ['live']).map(kind => `<span class="badge text-yellow">${escapeHtml(kind)}</span>`).join('');
+  return `
+    <a href="${escapeHtml(sessionUrl(t.session_id, t.project_slug))}" class="card flex animate-fade-in cursor-pointer mb-2" data-session-row="${escapeHtml(t.session_id)}" data-session-project="${escapeHtml(t.project_slug)}">
+      <div class="persona-rail persona-${personaCls(t.persona) || 'claude'}"></div>
+      <div class="flex-1 p-3 min-w-0">
+        <div class="flex items-center gap-2 text-xs mb-1 flex-wrap">
+          ${runtimes}${sourceKinds}${tags}
+          <span class="text-overlay1 truncate" title="${escapeHtml(t.project_slug)}">${escapeHtml(shortenSlug(t.project_slug))}</span>
+          <span class="badge whitespace-nowrap">${Number(t.event_count || 0).toLocaleString()} events</span>
+          <span class="text-overlay0 ml-auto" data-age data-iso="${escapeHtml(t.updated_at)}">${fmtTime(t.updated_at)}</span>
+        </div>
+        <div class="font-semibold text-mauve truncate mb-1">${escapeHtml(t.title || 'Untitled session')}</div>
+        <div class="preview text-sm">${escapeHtml(t.description || t.opening_prompt || 'No message preview captured.')}</div>
+        <div class="text-[0.65rem] text-overlay0 mt-1"><code>${escapeHtml(t.session_id)}</code></div>
+      </div>
+    </a>
+  `;
+}
+
+function markdownHtml(source) {
+  let text = escapeHtml(String(source || '')).replace(/\r\n?/g, '\n');
+  const blocks = [];
+  text = text.replace(/```[^\n]*\n([\s\S]*?)```/g, (_, code) => `@@CODE${blocks.push(`<pre><code>${code.trim()}</code></pre>`) - 1}@@`);
+  text = text.replace(/^### (.+)$/gm, '<h3>$1</h3>').replace(/^## (.+)$/gm, '<h2>$1</h2>').replace(/^# (.+)$/gm, '<h1>$1</h1>');
+  text = text.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
+  text = text.replace(/^[-*] (.+)$/gm, '<li>$1</li>').replace(/(?:<li>.*<\/li>\n?)+/g, value => `<ul>${value}</ul>`);
+  text = text.replace(/`([^`\n]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
+  text = text.split(/\n{2,}/).map(block => /^<(?:h\d|ul|blockquote|pre)|^@@CODE/.test(block) ? block : `<p>${block.replace(/\n/g, '<br>')}</p>`).join('');
+  return text.replace(/@@CODE(\d+)@@/g, (_, index) => blocks[Number(index)] || '');
+}
+
+function renderSessionMessage(event) {
+  const content = event.content || event.data?.response || event.data?.prompt || '';
+  if (!content) return '';
+  const assistant = event.type === 'AssistantResponse';
+  const anchor = event.event_id ? `id="event-${escapeHtml(event.event_id)}" data-session-event="${escapeHtml(event.event_id)}"` : '';
+  return `<article ${anchor} class="session-message timeline-event ${assistant ? 'assistant' : 'user'}">
+    <div class="session-message-role">${assistant ? '◆ assistant' : '▶ user'}</div>
+    <div class="markdown">${markdownHtml(content)}</div>
+  </article>`;
+}
+
+function firstCompleteSentence(source) {
+  const text = String(source || '').replace(/\s+/g, ' ').trim();
+  if (!text) return 'No text captured.';
+  const match = text.match(/^.{1,280}?(?:[.!?](?=\s|$)|$)/);
+  return match?.[0] || `${text.slice(0, 280)}${text.length > 280 ? '…' : ''}`;
+}
+
+function sessionSynopsis(events) {
+  const conversational = events.filter(event => ['UserPromptSubmit', 'AssistantResponse'].includes(event.type) && event.content?.trim());
+  const firstPrompt = conversational.find(event => event.type === 'UserPromptSubmit');
+  const lastResponse = [...conversational].reverse().find(event => event.type === 'AssistantResponse');
+  const lastPrompt = [...conversational].reverse().find(event => event.type === 'UserPromptSubmit');
+  const seen = new Set();
+  return [
+    ['Opening prompt', firstPrompt],
+    ['Latest agent response', lastResponse],
+    ['Latest prompt', lastPrompt],
+  ].filter(([, event]) => {
+    if (!event) return false;
+    const key = event.content.replace(/\s+/g, ' ').trim().toLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key); return true;
+  });
+}
+
+function renderSessionExcerpt(label, event) {
+  const role = event.type === 'AssistantResponse' ? 'assistant' : 'user';
+  return `<details class="session-excerpt ${role}" data-synopsis-label="${escapeHtml(label)}">
+    <summary><span class="session-excerpt-label">${escapeHtml(label)}</span>${escapeHtml(firstCompleteSentence(event.content))}</summary>
+    <div class="session-excerpt-full markdown">${markdownHtml(event.content)}</div>
+  </details>`;
+}
+
+function renderSessionDeckCard(t) {
+  const messages = (t.synopsis || []).filter(event => event.content);
+  const body = sessionSynopsis(messages).map(([label, event]) => renderSessionExcerpt(event.label || label, event)).join('') || '<div class="empty">No conversational messages.</div>';
+  return `<a href="${escapeHtml(sessionUrl(t.session_id, t.project_slug))}" class="session-deck-card animate-fade-in" data-session-row="${escapeHtml(t.session_id)}" data-session-project="${escapeHtml(t.project_slug)}">
+    <header class="session-card-head">
+      <div class="flex items-center gap-2 flex-wrap">${(t.runtimes || ['claude']).map(r => `<span class="badge text-green">${escapeHtml(r)}</span>`).join('')}<span class="badge text-yellow">${escapeHtml((t.source_kinds || ['live'])[0])}</span><span class="text-overlay0 ml-auto" data-age data-iso="${escapeHtml(t.updated_at)}">${fmtTime(t.updated_at)}</span></div>
+      <div class="session-card-title">${escapeHtml(t.title || 'Untitled session')}</div>
+      ${t.description ? `<div class="session-card-description">${escapeHtml(t.description)}</div>` : ''}
+      <div class="text-[0.62rem] text-overlay0 mt-1 truncate">${escapeHtml(shortenSlug(t.project_slug))}</div>
+    </header>
+    <section class="session-card-transcript">${body}</section>
+    <footer class="session-card-foot">
+      <div class="session-card-properties">
+        <div class="session-card-property"><b>${Number(t.event_count || 0).toLocaleString()}</b><span>events</span></div>
+        <div class="session-card-property"><b>${messages.length || '—'}</b><span>messages</span></div>
+        <div class="session-card-property"><b>${escapeHtml(t.persona || 'agent')}</b><span>persona</span></div>
+        <div class="session-card-property"><b>${escapeHtml((t.session_id || '').slice(0, 8))}</b><span>session</span></div>
+      </div>
+    </footer>
+  </a>`;
+}
+
+function renderSessionTable(sessions) {
+  return `<div class="session-table-wrap"><table class="session-table"><thead><tr><th>Session</th><th>Runtime</th><th>Project</th><th>Events</th><th>Source</th><th>Updated</th></tr></thead><tbody>${sessions.map(t => `<tr data-session-row="${escapeHtml(t.session_id)}" data-session-project="${escapeHtml(t.project_slug)}"><td class="session-name">${escapeHtml(t.title || 'Untitled session')}</td><td>${escapeHtml((t.runtimes || ['claude']).join(', '))}</td><td>${escapeHtml(shortenSlug(t.project_slug))}</td><td>${Number(t.event_count || 0).toLocaleString()}</td><td>${escapeHtml((t.source_kinds || ['live']).join(', '))}</td><td data-age data-iso="${escapeHtml(t.updated_at)}">${fmtTime(t.updated_at)}</td></tr>`).join('')}</tbody></table></div>`;
 }
 
 // ── Detail panel ───────────────────────────────────────────────────
@@ -352,8 +555,7 @@ function renderDetail() {
     </div>
   `;
   slot.querySelector('[data-action="open-transcript"]')?.addEventListener('click', () => {
-    state.currentSession = p.session_id;
-    navigate('transcript');
+    openSession(p.session_id, p.project_slug || '');
   });
 }
 
@@ -363,7 +565,7 @@ async function renderPromptsTab() {
   const main = document.getElementById('view-root');
   main.innerHTML = `
     <div class="mb-3 flex items-center justify-between gap-2 flex-wrap">
-      <div class="text-xs text-subtext0">recent prompts${state.projectSlug ? ` in <span class="text-mauve">${escapeHtml(shortenSlug(state.projectSlug))}</span>` : ' · all projects'}${state.personaFilter ? ` · <span class="text-mauve">${escapeHtml(state.personaFilter)}</span>` : ''}</div>
+      <div class="text-xs text-subtext0">recent prompts${state.projectSlug ? ` in <span class="text-mauve">${escapeHtml(shortenSlug(state.projectSlug))}</span>` : ' · all projects'}${state.runtimeFilter ? ` · <span class="text-sky">${escapeHtml(state.runtimeFilter)}</span>` : ''}${state.personaFilter ? ` · <span class="text-mauve">${escapeHtml(state.personaFilter)}</span>` : ''}</div>
       <input id="quick-q" type="text" placeholder="quick filter…" class="txt text-xs" />
     </div>
     <div id="prompts-list" class="empty">Loading…</div>
@@ -381,9 +583,12 @@ async function loadPrompts(q) {
     const params = { limit: 50 };
     if (state.projectSlug) params.project_slug = state.projectSlug;
     if (state.personaFilter) params.persona = state.personaFilter;
+    if (state.runtimeFilter) params.runtime = state.runtimeFilter;
+    if (state.sourceKindFilter) params.source_kind = state.sourceKindFilter;
     if (q) params.q = q;
     const prompts = await api('/api/prompts', params);
     state.prompts = prompts;
+    list.classList.remove('empty');
     if (prompts.length === 0) {
       list.innerHTML = `<div class="empty">No prompts found.</div>`;
       return;
@@ -415,54 +620,462 @@ function wireCards(root) {
   });
 }
 
-async function renderTranscriptTab() {
-  const main = document.getElementById('view-root');
-  if (!state.currentSession) {
+function sessionEventContent(e) {
+  return e.content || e.data?.response || e.data?.prompt || e.data?.message || '';
+}
+
+function renderConversationMapLink(e) {
+  const assistant = e.type === 'AssistantResponse';
+  const content = sessionEventContent(e).replace(/\s+/g, ' ').trim();
+  return `<button class="session-map-link" data-map-event="${escapeHtml(e.event_id)}"><span class="session-map-glyph ${assistant ? 'assistant' : 'user'}">${assistant ? '◆' : '▶'}</span><span class="session-map-copy">${escapeHtml(content || (assistant ? 'Agent response' : 'User prompt'))}</span></button>`;
+}
+
+function wireConversationMinimap(root) {
+  window._conversationMinimapObserver?.disconnect();
+  const links = new Map([...root.querySelectorAll('[data-map-event]')].map(link => [link.dataset.mapEvent, link]));
+  const messages = [...root.querySelectorAll('[data-session-event]')].filter(message => links.has(message.dataset.sessionEvent));
+  if (!links.size || !messages.length || typeof IntersectionObserver !== 'function') return;
+  const visible = new Set();
+  let frame = null;
+  const paint = () => {
+    frame = null;
+    links.forEach((link, eventId) => link.classList.toggle('in-viewport', visible.has(eventId)));
+    const firstVisible = [...links.values()].find(link => link.classList.contains('in-viewport'));
+    firstVisible?.scrollIntoView({block: 'nearest'});
+  };
+  window._conversationMinimapObserver = new IntersectionObserver(entries => {
+    for (const entry of entries) {
+      const eventId = entry.target.dataset.sessionEvent;
+      if (entry.isIntersecting) visible.add(eventId); else visible.delete(eventId);
+    }
+    if (!frame) frame = requestAnimationFrame(paint);
+  }, {root: null, rootMargin: '-72px 0px -12% 0px', threshold: [0, 0.05]});
+  messages.forEach(message => window._conversationMinimapObserver.observe(message));
+}
+
+function visibleSessionEvents(t) {
+  let events = state.transcriptMode === 'clean'
+    ? t.events.filter(e => ['UserPromptSubmit', 'AssistantResponse'].includes(e.type))
+    : t.events;
+  if (state.sessionTypeFilter) events = events.filter(e => e.type === state.sessionTypeFilter);
+  const q = state.sessionQuery.trim().toLocaleLowerCase();
+  if (q) events = events.filter(e => {
+    const haystack = [e.type, e.runtime, e.runtime_event, e.tool_name, e.model, sessionEventContent(e)]
+      .filter(Boolean).join('\n').toLocaleLowerCase();
+    return haystack.includes(q);
+  });
+  return events;
+}
+
+function formatDuration(ms) {
+  if (ms === null || ms === undefined) return '';
+  return ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)} s`;
+}
+
+function toolStatusBadge(e) {
+  if (!e.tool_status) return '';
+  const color = e.tool_status === 'failed' ? 'text-red' : e.tool_status === 'completed' ? 'text-green' : 'text-yellow';
+  const glyph = e.tool_status === 'failed' ? '×' : e.tool_status === 'completed' ? '✓' : '●';
+  return `<span class="badge ${color}">${glyph} ${escapeHtml(e.tool_status)}</span>`;
+}
+
+function renderTimelineEvent(e, index) {
+  const content = sessionEventContent(e);
+  const primary = ['UserPromptSubmit', 'AssistantResponse'].includes(e.type);
+  const raw = state.transcriptMode === 'raw'
+    ? `<pre class="inspector-json mt-3">${escapeHtml(JSON.stringify(e.data || {}, null, 2))}</pre>` : '';
+  return `
+    <article id="event-${escapeHtml(e.event_id)}" class="timeline-event card p-4 mb-2 cursor-pointer ${primary ? '' : 'compact'}" data-session-event="${escapeHtml(e.event_id)}">
+      <div class="flex items-center gap-2 text-xs flex-wrap">
+        <span class="badge ${e.type === 'UserPromptSubmit' ? 'text-mauve' : e.type === 'AssistantResponse' ? 'text-green' : 'text-sky'}">${escapeHtml(e.type)}</span>
+        <span class="badge text-sky">${escapeHtml(e.runtime || 'claude')}</span>
+        ${e.tool_name ? `<span class="badge badge-tool">${escapeHtml(e.tool_name)}</span>` : ''}
+        ${toolStatusBadge(e)}
+        ${e.duration_ms !== null && e.duration_ms !== undefined ? `<span class="text-overlay1">${escapeHtml(formatDuration(e.duration_ms))}</span>` : ''}
+        ${e.model ? `<span class="text-overlay1">${escapeHtml(e.model)}</span>` : ''}
+        <span class="text-overlay0 ml-auto">${escapeHtml((e.ts || '').slice(11, 19))}</span>
+      </div>
+      ${content ? `<div class="event-body preview text-sm mt-3">${escapeHtml(content)}</div>` : ''}
+      ${(e.artifacts || []).length ? `<div class="text-[0.68rem] text-yellow mt-2">${e.artifacts.length} attached artifact${e.artifacts.length === 1 ? '' : 's'}</div>` : ''}
+      ${e.content_truncated ? '<div class="text-[0.65rem] text-overlay0 mt-2">Preview truncated · select event for complete payload</div>' : ''}
+      ${raw}
+    </article>`;
+}
+
+function renderSessionGraph(graph) {
+  const heading = graph.kind === 'session_lineage' ? 'SESSION LINEAGE' : `${String(graph.runtime || 'agent').toUpperCase()} SESSION TREE`;
+  const allNodes = graph.nodes || [];
+  let visibleIndexes = allNodes.map((_, index) => index);
+  if (allNodes.length > 240) {
+    const keep = new Set([...Array(20).keys()]);
+    for (let index = Math.max(20, allNodes.length - 160); index < allNodes.length; index++) keep.add(index);
+    const childCounts = new Map();
+    allNodes.forEach(node => node.parent_id && childCounts.set(node.parent_id, (childCounts.get(node.parent_id) || 0) + 1));
+    allNodes.forEach((node, index) => {
+      if (graph.leaves.includes(node.id) || childCounts.get(node.id) > 1 || childCounts.get(node.parent_id) > 1) keep.add(index);
+    });
+    const ordered = [...keep].sort((a, b) => a - b);
+    visibleIndexes = ordered.length > 300 ? [...ordered.slice(0, 20), ...ordered.slice(-280)] : ordered;
+  }
+  let previous = -1;
+  const rows = [];
+  visibleIndexes.forEach(index => {
+    if (previous >= 0 && index > previous + 1) rows.push(`<div class="text-overlay0 text-[0.65rem] px-2 py-1">⋯ ${index - previous - 1} intermediate nodes</div>`);
+    const node = allNodes[index];
+    const prefix = node.current ? '◆' : node.parent_id ? '↳' : '•';
+    const suffix = graph.leaves.includes(node.id) ? ' ◇' : '';
+    const body = `${prefix} ${escapeHtml(node.label)}${suffix}`;
+    const attrs = `class="session-map-link text-left ${node.current ? 'active' : ''}" style="padding-left:${8 + Math.min(node.depth, 8) * 10}px" title="${escapeHtml(node.id)}"`;
+    rows.push(node.target_session_id
+      ? `<button ${attrs} data-lineage-session="${escapeHtml(node.target_session_id)}">${body}</button>`
+      : `<div ${attrs}>${body}</div>`);
+    previous = index;
+  });
+  const totalNodes = Number(graph.total_nodes || allNodes.length);
+  const summary = totalNodes > visibleIndexes.length ? `<div class="text-overlay0 text-[0.62rem] px-2 pb-2">showing ${visibleIndexes.length.toLocaleString()} of ${totalNodes.toLocaleString()} nodes</div>` : '';
+  return `<div class="font-pixel text-mauve p-2 text-[0.58rem]">${escapeHtml(heading)}</div>${summary}${rows.join('')}`;
+}
+
+function renderSessionInspector(e) {
+  if (!e) return `<div class="text-overlay0 text-xs">Select an event to inspect its provenance and native payload.</div>`;
+  return `
+    <div class="font-pixel text-mauve mb-3 text-[0.6rem]">MESSAGE METADATA</div>
+    <div class="space-y-2 text-xs mb-4">
+      <div><span class="text-overlay0">type</span><br><span class="text-sky">${escapeHtml(e.type)}</span></div>
+      <div><span class="text-overlay0">runtime</span><br>${escapeHtml(e.runtime || 'claude')} · ${escapeHtml(e.runtime_event || e.type)}</div>
+      <div><span class="text-overlay0">timestamp</span><br>${escapeHtml(e.ts)}</div>
+      ${e.turn_id ? `<div><span class="text-overlay0">turn</span><br><code>${escapeHtml(e.turn_id)}</code></div>` : ''}
+      ${e.tool_call_id ? `<div><span class="text-overlay0">tool call</span><br><code>${escapeHtml(e.tool_call_id)}</code></div>` : ''}
+      ${e.tool_status ? `<div><span class="text-overlay0">tool status</span><br>${escapeHtml(e.tool_status)}${e.duration_ms !== null && e.duration_ms !== undefined ? ` · ${escapeHtml(formatDuration(e.duration_ms))}` : ''}</div>` : ''}
+      ${e.model ? `<div><span class="text-overlay0">model</span><br>${escapeHtml(e.model)}</div>` : ''}
+      ${e.permission_mode ? `<div><span class="text-overlay0">permission</span><br>${escapeHtml(e.permission_mode)}</div>` : ''}
+      ${e.capture_source ? `<div><span class="text-overlay0">capture</span><br>${escapeHtml(e.capture_source)}</div>` : ''}
+      <div><span class="text-overlay0">source kind</span><br>${escapeHtml(e.source_kind || 'live')}</div>
+      <div><span class="text-overlay0">project</span><br>${escapeHtml(shortenSlug(e.project_slug))}</div>
+      <div><span class="text-overlay0">event id</span><br><code>${escapeHtml(e.event_id)}</code></div>
+    </div>
+    <details open><summary class="text-xs text-mauve cursor-pointer mb-2">Native payload</summary>
+      ${e.data_loaded === false ? '<div class="text-overlay0 text-xs">Loading native payload…</div>' : `<pre class="inspector-json">${escapeHtml(JSON.stringify(e.data || {}, null, 2))}</pre>`}
+    </details>`;
+}
+
+async function selectSessionEvent(t, eventId, scroll = false, updateUrl = true) {
+  state.selectedEventId = eventId;
+  document.querySelectorAll('[data-session-event]').forEach(el => el.classList.toggle('selected', el.dataset.sessionEvent === eventId));
+  document.querySelectorAll('[data-map-event]').forEach(el => el.classList.toggle('active', el.dataset.mapEvent === eventId));
+  const event = t.events.find(item => item.event_id === eventId);
+  if (updateUrl && event && window.location.hash !== `#event-${encodeURIComponent(eventId)}`) {
+    history.replaceState(
+      {...(history.state || {}), sessionDetail: true, selectedEventId: eventId},
+      '',
+      sessionEventUrl(t.session_id, state.currentTranscriptProject || t.project_slug || '', eventId),
+    );
+  }
+  const inspector = document.getElementById('session-inspector-content');
+  if (inspector) inspector.innerHTML = renderSessionInspector(event);
+  if (scroll) document.getElementById(`event-${eventId}`)?.scrollIntoView({behavior: 'smooth', block: 'start'});
+  if (event && event.data_loaded === false) {
     try {
-      const sessions = await api('/api/sessions', { limit: 1 });
+      const detail = await api('/api/event', {session: t.session_id, event: eventId});
+      if (state.selectedEventId !== eventId || detail.error) return;
+      Object.assign(event, detail);
+      if (inspector) inspector.innerHTML = renderSessionInspector(event);
+    } catch (error) {
+      if (inspector && state.selectedEventId === eventId) inspector.innerHTML += `<div class="text-red text-xs mt-2">${escapeHtml(error.message)}</div>`;
+    }
+  }
+}
+
+function clearSessionSelection(t, updateUrl = true) {
+  state.selectedEventId = '';
+  document.querySelectorAll('[data-session-event].selected').forEach(el => el.classList.remove('selected'));
+  document.querySelectorAll('[data-map-event].active').forEach(el => el.classList.remove('active'));
+  if (updateUrl) {
+    history.replaceState(
+      {...(history.state || {}), sessionDetail: true, selectedEventId: ''},
+      '',
+      sessionUrl(t.session_id, state.currentTranscriptProject || t.project_slug || ''),
+    );
+  }
+}
+
+function toggleSessionSelection(t, eventId) {
+  if (state.selectedEventId === eventId) clearSessionSelection(t);
+  else selectSessionEvent(t, eventId, true);
+}
+
+function openMessageDetail(sessionId, projectSlug, eventId) {
+  state.currentMessageId = eventId;
+  history.pushState({route: 'message-detail', sessionDetail: true}, '', messageUrl(sessionId, projectSlug, eventId));
+  renderRoute();
+}
+
+function backToTranscript() {
+  state.currentMessageId = '';
+  const url = state.selectedEventId
+    ? sessionEventUrl(state.currentSession, state.currentTranscriptProject, state.selectedEventId)
+    : sessionUrl(state.currentSession, state.currentTranscriptProject);
+  history.pushState({route: 'session-detail', sessionDetail: true, selectedEventId: state.selectedEventId}, '', url);
+  renderRoute();
+}
+
+function openSession(sessionId, projectSlug = '', options = {}) {
+  const fromCatalog = !document.body.classList.contains('session-explorer');
+  if (fromCatalog) {
+    state.catalogScrollY = window.scrollY;
+    history.replaceState({
+      route: 'sessions', tab: 'sessions', catalogScrollY: state.catalogScrollY,
+      sessionView: state.sessionView, sessionCatalogQuery: state.sessionCatalogQuery,
+    }, '', catalogUrl());
+  }
+  state.currentSession = sessionId;
+  state.currentTranscriptProject = projectSlug;
+  state.currentMessageId = '';
+  state.selectedEventId = '';
+  const url = sessionUrl(sessionId, projectSlug);
+  const historyState = {route: 'session-detail', sessionDetail: true, fromCatalog, catalogScrollY: state.catalogScrollY};
+  options.replace ? history.replaceState(historyState, '', url) : history.pushState(historyState, '', url);
+  renderRoute();
+}
+
+function backToSessions() {
+  if (history.state?.fromCatalog && history.length > 1) {
+    history.back();
+    return;
+  }
+  state.currentSession = null;
+  state.currentTranscriptProject = '';
+  state.currentMessageId = '';
+  history.pushState({route: 'sessions', tab: 'sessions', catalogScrollY: state.catalogScrollY}, '', catalogUrl());
+  renderRoute({useSessionCache: true});
+}
+
+async function loadSessionCatalog({append = false} = {}) {
+  const pageSize = state.sessionView === 'cards' ? 12 : 100;
+  const offset = append ? state.sessions.length : 0;
+  const page = await api('/api/sessions', {
+    limit: pageSize, offset, project_slug: state.projectSlug, runtime: state.runtimeFilter, source_kind: state.sourceKindFilter,
+  });
+  state.sessions = append ? [...state.sessions, ...page] : page;
+  state.sessionHasMore = page.length === pageSize;
+  return state.sessions;
+}
+
+async function renderTranscriptTab({useCache = false} = {}) {
+  window._conversationMinimapObserver?.disconnect();
+  const main = document.getElementById('view-root');
+  const routeGeneration = state.routeGeneration;
+  const routeSession = state.currentSession || '';
+  const routeIsCurrent = () => state.tab === 'sessions' && state.routeGeneration === routeGeneration && (state.currentSession || '') === routeSession;
+  if (!routeSession) {
+    document.body.classList.remove('session-explorer');
+    try {
+      if (!state.sessions.length) main.innerHTML = `<div class="empty">Loading sessions…</div>`;
+      const sessions = useCache ? state.sessions : await loadSessionCatalog();
+      if (!routeIsCurrent()) return;
       if (sessions.length === 0) {
         main.innerHTML = `<div class="empty">No sessions captured.</div>`;
         return;
       }
-      state.currentSession = sessions[0].session_id;
+      const query = state.sessionCatalogQuery.trim().toLowerCase();
+      const visible = query ? sessions.filter(t => [t.title, t.description, t.opening_prompt, t.project_slug, ...(t.runtimes || [])].join(' ').toLowerCase().includes(query)) : sessions;
+      main.innerHTML = `
+        <div class="mb-3"><div class="font-pixel text-mauve text-[0.7rem] mb-2">SESSION ARCHIVE</div><div class="text-xs text-subtext0">Every harness. Every conversation. One living record.</div></div>
+        <div class="session-toolbar">
+          <input id="session-catalog-search" class="txt session-search" type="search" value="${escapeHtml(state.sessionCatalogQuery)}" placeholder="Search loaded sessions, projects, runtimes…" autocomplete="off">
+          <div class="view-switch" role="group" aria-label="Session layout">
+            <button class="view-button ${state.sessionView === 'cards' ? 'active' : ''}" data-session-view="cards" aria-pressed="${state.sessionView === 'cards'}">▦ Cards</button>
+            <button class="view-button ${state.sessionView === 'table' ? 'active' : ''}" data-session-view="table" aria-pressed="${state.sessionView === 'table'}">☷ Table</button>
+          </div>
+          <span class="text-[0.65rem] text-overlay0">${visible.length.toLocaleString()} shown · newest first</span>
+        </div>
+        ${visible.length ? (state.sessionView === 'cards' ? `<div class="session-card-grid">${visible.map(renderSessionDeckCard).join('')}</div>` : renderSessionTable(visible)) : '<div class="empty">No loaded sessions match this search.</div>'}
+        ${state.sessionHasMore ? `<button class="view-nav-item w-full mt-3" data-action="load-more-sessions">Load ${state.sessionView === 'cards' ? '12' : '100'} more sessions</button>` : ''}`;
+      const searchInput = document.getElementById('session-catalog-search');
+      searchInput?.addEventListener('input', event => {
+        state.sessionCatalogQuery = event.target.value;
+        clearTimeout(window._sessionCatalogSearchTimer);
+        window._sessionCatalogSearchTimer = setTimeout(() => {
+          const selection = event.target.selectionStart;
+          renderTranscriptTab({useCache: true}).then(() => {
+            const next = document.getElementById('session-catalog-search');
+            next?.focus(); next?.setSelectionRange(selection, selection);
+          });
+        }, 100);
+      });
+      main.querySelectorAll('[data-session-view]').forEach(button => button.addEventListener('click', async () => {
+        const nextView = button.dataset.sessionView;
+        if (nextView === state.sessionView) return;
+        state.sessionView = nextView;
+        state.sessions = [];
+        state.sessionHasMore = false;
+        try { localStorage.setItem('legion.logging.sessions.view', nextView); } catch (error) {}
+        await renderTranscriptTab();
+      }));
+      main.querySelectorAll('[data-session-row]').forEach(row => {
+        row.addEventListener('click', event => {
+          if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+          event.preventDefault();
+          openSession(row.dataset.sessionRow, row.dataset.sessionProject || '');
+        });
+      });
+      main.querySelectorAll('.preview').forEach(el => el.addEventListener('click', event => {
+        event.preventDefault(); event.stopPropagation(); el.classList.toggle('expanded');
+      }));
+      main.querySelectorAll('.session-excerpt summary').forEach(el => {
+        el.addEventListener('click', async event => {
+          event.preventDefault(); event.stopPropagation();
+          const detail = el.closest('details'); detail.open = !detail.open;
+          if (!detail.open || detail.dataset.full === 'true') return;
+          const card = detail.closest('[data-session-row]');
+          const full = detail.querySelector('.session-excerpt-full');
+          full.innerHTML = '<span class="text-overlay0">Loading complete text…</span>';
+          try {
+            let transcript = state.sessionTranscripts.get(card.dataset.sessionRow);
+            if (!transcript) {
+              transcript = await api('/api/transcript', {session: card.dataset.sessionRow, project_slug: card.dataset.sessionProject || '', mode: 'clean'});
+              if (!transcript.error) state.sessionTranscripts.set(card.dataset.sessionRow, transcript);
+            }
+            const item = sessionSynopsis(transcript.events || []).find(([label]) => label === detail.dataset.synopsisLabel);
+            full.innerHTML = item ? markdownHtml(item[1].content) : '<span class="text-overlay0">Complete text unavailable.</span>';
+            detail.dataset.full = 'true';
+          } catch (error) { full.innerHTML = `<span class="text-red">${escapeHtml(error.message)}</span>`; }
+        });
+      });
+      main.querySelector('[data-action="load-more-sessions"]')?.addEventListener('click', async event => {
+        event.currentTarget.textContent = 'Loading…';
+        event.currentTarget.disabled = true;
+        try {
+          await loadSessionCatalog({append: true});
+          await renderTranscriptTab({useCache: true});
+        } catch (error) {
+          event.currentTarget.textContent = `Retry · ${error.message}`;
+          event.currentTarget.disabled = false;
+        }
+      });
+      requestAnimationFrame(() => window.scrollTo(0, state.catalogScrollY || 0));
     } catch (e) {
       main.innerHTML = `<div class="empty text-red">Error: ${escapeHtml(e.message)}</div>`;
-      return;
     }
+    return;
   }
-  main.innerHTML = `<div class="empty">Loading transcript…</div>`;
+
+  document.body.classList.add('session-explorer');
+  main.innerHTML = `<div class="empty">Opening session…</div>`;
   try {
-    const t = await api('/api/transcript', {
-      session: state.currentSession,
-      mode: state.transcriptMode,
-    });
+    const catalogPromise = state.sessions.length ? Promise.resolve(state.sessions) : loadSessionCatalog();
+    const [t] = await Promise.all([
+      api('/api/transcript', {
+        session: state.currentSession,
+        project_slug: state.currentTranscriptProject,
+        mode: state.transcriptMode === 'raw' ? 'full' : 'explore',
+      }),
+      catalogPromise,
+    ]);
+    if (!routeIsCurrent()) return;
     if (t.error) {
       main.innerHTML = `<div class="empty text-red">${escapeHtml(t.error)}</div>`;
       return;
     }
+    if (state.currentMessageId) {
+      let message = t.events.find(event => event.event_id === state.currentMessageId);
+      if (!message) {
+        main.innerHTML = `<div class="empty text-red">Message not found in this session.</div>`;
+        return;
+      }
+      if (message.data_loaded === false) {
+        const detail = await api('/api/event', {session: t.session_id, event: message.event_id});
+        if (!routeIsCurrent()) return;
+        if (!detail.error) Object.assign(message, detail);
+      }
+      const assistant = message.type === 'AssistantResponse';
+      main.innerHTML = `<article class="message-detail card">
+        <header class="session-masthead">
+          <nav class="session-breadcrumbs" aria-label="Breadcrumb"><button data-action="back-to-sessions">Legion</button><span>/</span><button data-action="back-to-sessions">Sessions</button><span>/</span><button data-action="back-to-transcript">${escapeHtml(t.title)}</button><span>/</span><code>${escapeHtml(message.event_id)}</code></nav>
+          <div class="session-message-role ${assistant ? 'assistant' : 'user'}">${assistant ? '◆ Agent response' : '▶ User prompt'}</div>
+          <h1 class="session-detail-title">${assistant ? 'Agent response' : 'User prompt'}</h1>
+        </header>
+        <div class="message-detail-content markdown-body">${markdownHtml(sessionEventContent(message))}</div>
+        <div class="message-detail-metadata">${renderSessionInspector(message)}</div>
+      </article>`;
+      main.querySelectorAll('[data-action="back-to-sessions"]').forEach(button => button.addEventListener('click', backToSessions));
+      main.querySelector('[data-action="back-to-transcript"]')?.addEventListener('click', backToTranscript);
+      return;
+    }
+    const events = visibleSessionEvents(t);
+    const eventTypes = [...new Set(t.events.map(e => e.type))].sort();
+    const mapEvents = events.filter(e => ['UserPromptSubmit','AssistantResponse'].includes(e.type));
     main.innerHTML = `
-      <div class="mb-3 flex items-center gap-3 text-xs flex-wrap">
-        <div class="text-subtext0">
-          Session <code class="text-mauve">${escapeHtml(t.session_id.slice(0, 8))}…</code>
-          in <span class="text-sky">${escapeHtml(shortenSlug(t.project_slug))}</span>
-          · ${t.event_count} event${t.event_count === 1 ? '' : 's'}
+      <nav class="session-breadcrumbs session-page-breadcrumbs" aria-label="Breadcrumb"><button data-action="back-to-sessions">Legion</button><span>/</span><button data-action="back-to-sessions">Logging</button><span>/</span><button data-action="back-to-sessions">Sessions</button><span>/</span><code>${escapeHtml(t.session_id)}</code></nav>
+      <div class="session-shell">
+        <nav class="session-map card">
+          <div class="session-map-title">CONVERSATION</div>${mapEvents.map(renderConversationMapLink).join('') || '<div class="text-overlay0 text-xs p-3">No prompts or responses.</div>'}
+        </nav>
+        <div class="session-document">
+          <header class="session-header card mb-3">
+            <div class="session-masthead">
+              <h1 class="session-detail-title">${escapeHtml(t.title)}</h1>
+              ${t.description ? `<p class="session-detail-description">${escapeHtml(t.description)}</p>` : ''}
+              <div class="session-detail-meta"><span class="text-[0.65rem] text-overlay0">${escapeHtml(shortenSlug(t.project_slug))}</span><span class="text-surface2">·</span><span class="text-[0.65rem] text-overlay0">${escapeHtml(t.started_at || '')}</span>
+                ${(t.runtimes || []).map(r => `<span class="badge text-sky">${escapeHtml(r)}</span>`).join('')}
+                ${(t.source_kinds || ['live']).map(kind => `<span class="badge text-yellow">${escapeHtml(kind)}</span>`).join('')}
+                ${(t.models || []).filter(Boolean).map(m => `<span class="badge">${escapeHtml(m)}</span>`).join('')}
+                <span class="badge">${Number(t.total_event_count || 0).toLocaleString()} events</span>
+                ${(t.artifacts || []).length ? `<span class="badge text-yellow">${t.artifacts.length} artifacts</span>` : ''}
+              </div>
+            </div>
+            <div class="session-controls">
+              <button class="view-nav-item ${state.transcriptMode==='clean'?'active':''}" data-mode="clean">Clean</button>
+              <button class="view-nav-item ${state.transcriptMode==='detailed'?'active':''}" data-mode="detailed">Detailed</button>
+              <button class="view-nav-item ${state.transcriptMode==='raw'?'active':''}" data-mode="raw">Raw</button>
+              <input id="session-query" class="txt text-xs min-w-[220px]" type="search" value="${escapeHtml(state.sessionQuery)}" placeholder="Filter this session…" aria-label="Filter events in this session" />
+              <select id="session-type-filter" class="txt text-xs" aria-label="Filter session by event type">
+                <option value="">All visible event types</option>
+                ${eventTypes.map(type => `<option value="${escapeHtml(type)}" ${state.sessionTypeFilter === type ? 'selected' : ''}>${escapeHtml(type)}</option>`).join('')}
+              </select>
+              ${(state.sessionQuery || state.sessionTypeFilter) ? `<span class="text-[0.68rem] text-yellow">${events.length} of ${t.events.length}</span>` : ''}
+            </div>
+          </header>
+          <section id="session-timeline" class="${state.transcriptMode === 'clean' ? 'card session-reader-scroll' : ''}">${state.transcriptMode === 'clean' ? (events.filter(e => ['UserPromptSubmit','AssistantResponse'].includes(e.type)).map(renderSessionMessage).join('\n') || '<div class="empty">No conversational messages.</div>') : (events.map(renderTimelineEvent).join('\n') || '<div class="empty">No events in this view.</div>')}</section>
         </div>
-        <div class="ml-auto flex gap-1">
-          <button class="view-nav-item ${state.transcriptMode==='clean'?'active':''}" data-mode="clean">Clean</button>
-          <button class="view-nav-item ${state.transcriptMode==='full'?'active':''}" data-mode="full">Full</button>
-        </div>
-      </div>
-      <div>${t.events.map(renderEventRow).join('\n')}</div>
-    `;
-    main.querySelectorAll('[data-mode]').forEach(el => {
-      el.addEventListener('click', () => {
-        state.transcriptMode = el.dataset.mode;
+      </div>`;
+    main.querySelectorAll('[data-action="back-to-sessions"]').forEach(button => button.addEventListener('click', backToSessions));
+    main.querySelectorAll('[data-mode]').forEach(el => el.addEventListener('click', () => {
+      state.transcriptMode = el.dataset.mode;
+      renderTranscriptTab();
+    }));
+    document.getElementById('session-query')?.addEventListener('input', event => {
+      state.sessionQuery = event.target.value;
+      clearTimeout(window._sessionFilterDebounce);
+      window._sessionFilterDebounce = setTimeout(() => {
+        state.refocusSessionQuery = document.activeElement?.id === 'session-query';
         renderTranscriptTab();
-      });
+      }, 120);
     });
-    main.querySelectorAll('.preview').forEach(el => {
-      el.addEventListener('click', () => el.classList.toggle('expanded'));
+    document.getElementById('session-type-filter')?.addEventListener('change', event => {
+      state.sessionTypeFilter = event.target.value;
+      renderTranscriptTab();
     });
+    main.querySelectorAll('[data-session-event]').forEach(el => el.addEventListener('click', () => openMessageDetail(t.session_id, state.currentTranscriptProject || t.project_slug || '', el.dataset.sessionEvent)));
+    main.querySelectorAll('[data-map-event]').forEach(el => el.addEventListener('click', () => toggleSessionSelection(t, el.dataset.mapEvent)));
+    wireConversationMinimap(main);
+    main.querySelectorAll('[data-lineage-session]').forEach(el => el.addEventListener('click', () => openSession(el.dataset.lineageSession, '')));
+    main.querySelectorAll('.preview').forEach(el => el.addEventListener('click', event => {
+      event.stopPropagation(); el.classList.toggle('expanded');
+    }));
+    if (state.selectedEventId && events.some(e => e.event_id === state.selectedEventId)) selectSessionEvent(t, state.selectedEventId, false, false);
+    const anchorMatch = window.location.hash.match(/^#event-(.+)$/);
+    const anchor = anchorMatch ? decodeURIComponent(anchorMatch[1]) : '';
+    if (anchor && events.some(e => e.event_id === anchor)) selectSessionEvent(t, anchor, true, false);
+    else if (state.liveRefresh) requestAnimationFrame(() => window.scrollTo(0, state.sessionScrollY));
+    if (state.refocusSessionQuery) requestAnimationFrame(() => {
+      const input = document.getElementById('session-query');
+      if (!input) return;
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    });
+    state.refocusSessionQuery = false;
+    state.liveRefresh = false;
   } catch (e) {
     main.innerHTML = `<div class="empty text-red">Error: ${escapeHtml(e.message)}</div>`;
   }
@@ -472,10 +1085,10 @@ async function renderSearchTab() {
   const main = document.getElementById('view-root');
   main.innerHTML = `
     <form id="search-form" class="mb-4 flex gap-2 items-center flex-wrap">
-      <input type="text" name="q" placeholder="Search prompts + events…" class="txt flex-1 min-w-[260px]" autocomplete="off" autofocus />
+      <input id="global-search" type="search" name="q" value="${escapeHtml(state.searchQuery)}" placeholder="Search every prompt, response, tool event…" class="txt flex-1 min-w-[260px]" autocomplete="off" autofocus />
       <select name="mode" class="txt">
-        <option value="prompts">Prompts (FTS5)</option>
-        <option value="events">All events (FTS5)</option>
+        <option value="prompts" ${state.searchMode === 'prompts' ? 'selected' : ''}>Prompts</option>
+        <option value="events" ${state.searchMode === 'events' ? 'selected' : ''}>All events</option>
       </select>
       <button type="submit" class="view-nav-item active">Go</button>
     </form>
@@ -484,15 +1097,16 @@ async function renderSearchTab() {
   `;
   const form = document.getElementById('search-form');
   const resultsEl = document.getElementById('search-results');
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const fd = new FormData(form);
-    const q = fd.get('q');
-    const mode = fd.get('mode');
+  let requestSequence = 0;
+  const runSearch = async () => {
+    const q = state.searchQuery.trim();
+    const mode = state.searchMode;
     if (!q) { resultsEl.innerHTML = ''; return; }
+    const sequence = ++requestSequence;
     resultsEl.innerHTML = `<div class="empty">Searching…</div>`;
     try {
-      const r = await api('/api/search', { q, mode });
+      const r = await api('/api/search', { q, mode, runtime: state.runtimeFilter, source_kind: state.sourceKindFilter });
+      if (sequence !== requestSequence) return;
       state.searchResults = r;
       if (r.results.length === 0) {
         resultsEl.innerHTML = `<div class="empty">No matches for "${escapeHtml(q)}".</div>`;
@@ -504,9 +1118,19 @@ async function renderSearchTab() {
       `;
       wireCards(resultsEl);
     } catch (e) {
+      if (sequence !== requestSequence) return;
       resultsEl.innerHTML = `<div class="empty text-red">Error: ${escapeHtml(e.message)}</div>`;
     }
+  };
+  form.addEventListener('submit', e => { e.preventDefault(); runSearch(); });
+  const input = document.getElementById('global-search');
+  input.addEventListener('input', () => {
+    state.searchQuery = input.value;
+    clearTimeout(window._globalSearchTimer);
+    window._globalSearchTimer = setTimeout(runSearch, 180);
   });
+  form.elements.mode.addEventListener('change', event => { state.searchMode = event.target.value; runSearch(); });
+  if (state.searchQuery) runSearch();
 }
 
 async function renderSettingsTab() {
@@ -516,6 +1140,7 @@ async function renderSettingsTab() {
     const stats = await api('/api/stats');
     state.stats = stats;
     const types = Object.entries(stats.events_by_type || {});
+    const adapters = Object.values(stats.adapter_health || {});
     main.innerHTML = `
       <div class="space-y-4">
         <div class="card p-4">
@@ -527,6 +1152,19 @@ async function renderSettingsTab() {
             <div><div class="text-subtext0 text-xs">Total events</div><div class="text-2xl font-bold text-teal">${(stats.events||0).toLocaleString()}</div></div>
           </div>
           ${stats.last_synced_at ? `<div class="mt-3 text-xs text-overlay0">Rollup last synced: <span class="text-subtext0">${escapeHtml(stats.last_synced_at)}</span></div>` : ''}
+        </div>
+
+        <div class="card p-4">
+          <div class="font-pixel text-sm text-mauve mb-3">RUNTIME ADAPTERS</div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+            ${adapters.map(a => `<div class="bg-surface0 rounded p-3 text-xs">
+              <div class="flex gap-2 items-center mb-2"><span class="badge text-sky">${escapeHtml(a.runtime)}</span>
+                <span class="badge ${a.last_event ? 'text-green' : 'text-yellow'}">${a.last_event ? 'indexed' : 'waiting'}</span></div>
+              <div class="text-subtext0">discovered <span class="text-text">${Number(a.discovered_sessions||0).toLocaleString()}</span> · indexed <span class="text-text">${Number(a.indexed_sessions||0).toLocaleString()}</span> sessions / <span class="text-text">${Number(a.indexed_events||0).toLocaleString()}</span> events</div>
+              ${a.installed !== undefined ? `<div class="mt-1 text-overlay0">installed ${a.installed?'yes':'no'} · extension ${a.extension_configured?'configured':'missing'}${a.credentials_configured !== undefined ? ` · credentials ${a.credentials_configured?'ready':'needed'}` : ''}</div>` : ''}
+              ${a.last_event ? `<div class="mt-1 text-overlay0">last event ${escapeHtml(a.last_event)}</div>` : ''}
+            </div>`).join('')}
+          </div>
         </div>
 
         <div class="card p-4">
@@ -569,35 +1207,76 @@ async function renderSettingsTab() {
 // ── Navigation ─────────────────────────────────────────────────────
 
 const tabRenderers = {
+  sessions: renderTranscriptTab,
   prompts: renderPromptsTab,
-  transcript: renderTranscriptTab,
   search: renderSearchTab,
   settings: renderSettingsTab,
 };
 
-function navigate(tab) {
-  if (!tabRenderers[tab]) tab = 'prompts';
-  state.tab = tab;
+function renderRoute({useSessionCache = false} = {}) {
+  state.routeGeneration += 1;
+  const tab = state.tab;
   document.querySelectorAll('.view-nav-item[data-tab]').forEach(el => {
     el.classList.toggle('active', el.dataset.tab === tab);
   });
-  const newHash = '#' + tab + (tab === 'transcript' && state.currentSession ? '?session=' + state.currentSession : '');
-  if (window.location.hash !== newHash) window.location.hash = newHash;
-  tabRenderers[tab]();
-  // Close mobile sidebar on nav
+  if (tab === 'sessions') renderTranscriptTab({useCache: useSessionCache});
+  else tabRenderers[tab]?.();
   document.body.classList.remove('scrim-open');
   document.getElementById('mobile-scrim').classList.add('hidden');
 }
 
-function parseHash() {
+function navigate(tab, options = {}) {
+  if (!tabRenderers[tab]) tab = 'sessions';
+  state.tab = tab;
+  state.currentSession = '';
+  state.currentTranscriptProject = '';
+  state.currentMessageId = '';
+  document.body.classList.remove('session-explorer');
+  const url = tab === 'sessions' ? catalogUrl() : `${pathPrefix()}/#${tab}`;
+  options.replace ? history.replaceState({tab}, '', url) : history.pushState({tab}, '', url);
+  renderRoute({useSessionCache: tab === 'sessions' && state.sessions.length > 0});
+}
+
+function applyLocation() {
+  const prefix = pathPrefix();
+  const localPath = window.location.pathname.slice(prefix.length) || '/';
+  const messageMatch = localPath.match(/^\/sessions\/([^/]+)\/messages\/([^/]+)\/?$/);
+  if (messageMatch) {
+    state.tab = 'sessions';
+    state.currentSession = decodeURIComponent(messageMatch[1]);
+    state.currentMessageId = decodeURIComponent(messageMatch[2]);
+    state.currentTranscriptProject = new URLSearchParams(window.location.search).get('project') || '';
+    return;
+  }
+  const match = localPath.match(/^\/sessions\/([^/]+)\/?$/);
+  if (match) {
+    state.tab = 'sessions';
+    state.currentSession = decodeURIComponent(match[1]);
+    state.currentMessageId = '';
+    state.currentTranscriptProject = new URLSearchParams(window.location.search).get('project') || '';
+    const eventMatch = window.location.hash.match(/^#event-(.+)$/);
+    state.selectedEventId = eventMatch ? decodeURIComponent(eventMatch[1]) : (history.state?.selectedEventId || '');
+    return;
+  }
+  if (localPath === '/sessions' || localPath === '/sessions/') {
+    state.tab = 'sessions'; state.currentSession = ''; state.currentTranscriptProject = ''; state.currentMessageId = '';
+    return;
+  }
   const hash = window.location.hash.replace(/^#/, '');
-  if (!hash) return 'prompts';
+  if (!hash) { state.tab = 'sessions'; state.currentSession = ''; return; }
   const [tab, query] = hash.split('?');
   if (query) {
     const qp = new URLSearchParams(query);
-    if (qp.has('session')) state.currentSession = qp.get('session');
+    if (qp.has('session')) {
+      state.currentSession = qp.get('session');
+      state.currentTranscriptProject = qp.get('project') || '';
+      state.tab = 'sessions';
+      history.replaceState({sessionDetail: true}, '', sessionUrl(state.currentSession, state.currentTranscriptProject));
+      return;
+    }
   }
-  return tab || 'prompts';
+  state.tab = tabRenderers[tab] ? tab : 'sessions';
+  state.currentSession = '';
 }
 
 // ── Stats / health / projects boot ─────────────────────────────────
@@ -622,12 +1301,15 @@ async function refreshHealthBadge() {
     const slot = document.getElementById('healthz-slot');
     if (j.ok) {
       slot.innerHTML = `<span class="text-green" title="healthz ok · ${j.elapsed_ms}ms">●</span>`;
+      if (_es && _es.readyState === 1) setLiveDot('green', 'live — ingestion and push healthy');
     } else {
       slot.innerHTML = `<span class="text-red" title="${escapeHtml((j.issues || []).join(' · '))}">●</span>`;
+      setLiveDot('red', `not live — ${(j.issues || []).join(' · ')}`);
     }
     document.getElementById('footer-status').textContent = `${(j.stats?.key_metric || 0).toLocaleString()} events · ${j.stats?.projects || 0} projects`;
   } catch (e) {
     document.getElementById('healthz-slot').innerHTML = `<span class="text-red">●</span>`;
+    setLiveDot('red', 'not live — health check failed');
   }
 }
 
@@ -671,8 +1353,25 @@ document.querySelectorAll('.view-nav-item[data-tab]').forEach(el => {
   el.addEventListener('click', () => navigate(el.dataset.tab));
 });
 
+document.addEventListener('keydown', event => {
+  if (event.key !== 'Escape' || !state.currentSession || !state.selectedEventId || state.currentMessageId) return;
+  clearSessionSelection({session_id: state.currentSession, project_slug: state.currentTranscriptProject});
+});
+
 document.getElementById('project-filter').addEventListener('change', (e) => {
   state.projectSlug = e.target.value;
+  tabRenderers[state.tab]();
+});
+
+document.getElementById('runtime-filter').addEventListener('change', (e) => {
+  state.runtimeFilter = e.target.value;
+  state.currentSession = null;
+  tabRenderers[state.tab]();
+});
+
+document.getElementById('source-kind-filter').addEventListener('change', (e) => {
+  state.sourceKindFilter = e.target.value;
+  state.currentSession = null;
   tabRenderers[state.tab]();
 });
 
@@ -690,9 +1389,14 @@ document.querySelectorAll('[data-action="close-sidebar"]').forEach(el => {
   });
 });
 
-window.addEventListener('hashchange', () => {
-  const tab = parseHash();
-  if (tab !== state.tab) navigate(tab);
+window.addEventListener('popstate', event => {
+  state.catalogScrollY = event.state?.catalogScrollY ?? state.catalogScrollY;
+  if (event.state?.route === 'sessions') {
+    state.sessionView = event.state.sessionView || state.sessionView;
+    state.sessionCatalogQuery = event.state.sessionCatalogQuery ?? state.sessionCatalogQuery;
+  }
+  applyLocation();
+  renderRoute({useSessionCache: state.tab === 'sessions' && !state.currentSession && state.sessions.length > 0});
 });
 
 // Show hub-backlink in Mode B (mounted under Platform)
@@ -725,8 +1429,14 @@ function scheduleLiveRefetch() {
   if (_liveRefetchTimer) return;
   _liveRefetchTimer = setTimeout(() => {
     _liveRefetchTimer = null;
+    if (state.tab === 'sessions' && state.currentSession) {
+      state.sessionScrollY = window.scrollY;
+      state.liveRefresh = true;
+    }
     const r = tabRenderers[state.tab];
     if (r) Promise.resolve(r()).catch(e => console.warn('live re-render failed:', e));
+    refreshStats().catch(() => {});
+    loadProjects().catch(() => {});
     refreshHealthBadge().catch(() => {});
   }, 100);
 }
@@ -734,6 +1444,14 @@ function scheduleLiveRefetch() {
 let _es = null;
 let _esReconnectMs = 1000;
 let _pollFallbackTimer = null;
+let _liveLeader = false;
+let _liveElectionTimer = null;
+const _liveInstanceId = (globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`);
+const _liveScope = pathPrefix() || '/';
+const _liveLeaderKey = `legion.logging.live-leader:${_liveScope}`;
+const _liveChannel = typeof BroadcastChannel === 'function'
+  ? new BroadcastChannel(`legion.logging.live:${_liveScope}`)
+  : null;
 
 function startPollFallback() {
   if (_pollFallbackTimer) return;
@@ -752,6 +1470,7 @@ function stopPollFallback() {
 }
 
 function connectSSE() {
+  if (_liveChannel && !_liveLeader) return;
   if (_es) { try { _es.close(); } catch (e) {} _es = null; }
   const url = pathPrefix() + '/api/events';
   try {
@@ -764,7 +1483,8 @@ function connectSSE() {
   _es.onopen = () => {
     _esReconnectMs = 1000;
     stopPollFallback();
-    setLiveDot('green', 'live — push connected');
+    setLiveDot('yellow', 'push connected — checking ingestion');
+    refreshHealthBadge().catch(() => {});
   };
   _es.onmessage = (ev) => {
     let payload = null;
@@ -773,13 +1493,14 @@ function connectSSE() {
     if (payload.event === 'connected') return;     // initial handshake
     if (payload.event === 'corpus-changed') {
       scheduleLiveRefetch();
+      _liveChannel?.postMessage({type: 'corpus-changed'});
     }
   };
   _es.onerror = () => {
     setLiveDot('yellow', 'SSE reconnecting…');
     startPollFallback();
     setTimeout(() => {
-      if (_es && _es.readyState === 2 /* CLOSED */) {
+      if ((!_liveChannel || _liveLeader) && _es && _es.readyState === 2 /* CLOSED */) {
         _esReconnectMs = Math.min(_esReconnectMs * 2, 30000);
         connectSSE();
       }
@@ -787,15 +1508,83 @@ function connectSSE() {
   };
 }
 
+function readLiveLeader() {
+  try { return JSON.parse(localStorage.getItem(_liveLeaderKey) || 'null'); }
+  catch (error) { return null; }
+}
+
+function releaseLiveLeadership() {
+  if (!_liveLeader) return;
+  _liveLeader = false;
+  if (_es) { try { _es.close(); } catch (error) {} _es = null; }
+  stopPollFallback();
+}
+
+function electLiveLeader() {
+  // BroadcastChannel lets every open logging tab share one long-lived SSE
+  // connection. This avoids exhausting the browser's HTTP/1.1 origin pool.
+  if (!_liveChannel) { _liveLeader = true; connectSSE(); return; }
+  const now = Date.now();
+  const incumbent = readLiveLeader();
+  if (!incumbent || incumbent.expires < now || incumbent.id === _liveInstanceId) {
+    try {
+      localStorage.setItem(_liveLeaderKey, JSON.stringify({id: _liveInstanceId, expires: now + 6000}));
+      const won = readLiveLeader()?.id === _liveInstanceId;
+      if (won && !_liveLeader) {
+        _liveLeader = true;
+        connectSSE();
+      }
+      return;
+    } catch (error) {
+      _liveLeader = true;
+      connectSSE();
+      return;
+    }
+  }
+  if (_liveLeader) releaseLiveLeadership();
+  setLiveDot('green', 'live via shared browser connection');
+}
+
+function startLivePush() {
+  if (_liveChannel) {
+    _liveChannel.onmessage = event => {
+      if (event.data?.type === 'corpus-changed') scheduleLiveRefetch();
+    };
+    window.addEventListener('storage', event => {
+      if (event.key === _liveLeaderKey) electLiveLeader();
+    });
+    window.addEventListener('beforeunload', () => {
+      if (readLiveLeader()?.id === _liveInstanceId) {
+        try { localStorage.removeItem(_liveLeaderKey); } catch (error) {}
+      }
+      releaseLiveLeadership();
+    });
+    electLiveLeader();
+    _liveElectionTimer = setInterval(electLiveLeader, 2000);
+  } else {
+    _liveLeader = true;
+    connectSSE();
+  }
+}
+
 // Boot
 (async () => {
+  try { state.sessionView = localStorage.getItem('legion.logging.sessions.view') === 'table' ? 'table' : 'cards'; } catch (error) {}
   renderPersonaFilter();
-  await Promise.all([loadProjects(), refreshStats(), refreshHealthBadge()]);
-  navigate(parseHash());
+  applyLocation();
+  if (state.tab === 'sessions' && !state.currentSession) {
+    history.replaceState({route: 'sessions', tab: 'sessions', catalogScrollY: state.catalogScrollY}, '', catalogUrl());
+  } else {
+    history.replaceState({...history.state, route: state.currentSession ? 'session-detail' : state.tab, tab: state.tab}, '', window.location.href);
+  }
+  renderRoute();
+  loadProjects().catch(error => console.warn('projects boot failed:', error));
+  refreshStats().catch(error => console.warn('stats boot failed:', error));
+  refreshHealthBadge().catch(error => console.warn('health boot failed:', error));
   setInterval(refreshHealthBadge, 30000);
   setInterval(refreshStats, 60000);
   setLiveDot('overlay0', 'connecting…');
-  connectSSE();
+  startLivePush();
 })();
 </script>
 </body>

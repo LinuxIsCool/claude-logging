@@ -1,0 +1,45 @@
+{
+  "contract": "legion.logging.adapter.v1",
+  "adapters": [
+    {
+      "runtime": "pi",
+      "family": "pi-family",
+      "live": true,
+      "archive": true,
+      "extension": "adapters/pi/extension.ts",
+      "session_glob": "~/.pi/agent/sessions/**/*.jsonl",
+      "capabilities": ["messages", "reasoning", "tools", "tool_correlation", "models", "compaction", "session_tree"],
+      "known_gaps": []
+    },
+    {
+      "runtime": "prime-agent",
+      "family": "pi-family",
+      "live": true,
+      "archive": true,
+      "extension": "adapters/prime_agent/extension.ts",
+      "session_glob": "~/.prime/agent/sessions/**/*.jsonl",
+      "capabilities": ["messages", "reasoning", "tools", "tool_correlation", "models", "compaction", "session_tree"],
+      "known_gaps": []
+    },
+    {
+      "runtime": "omp",
+      "family": "pi-family",
+      "live": true,
+      "archive": true,
+      "extension": "adapters/omp/extension.ts",
+      "session_glob": "~/.omp/agent/sessions/**/*.jsonl",
+      "capabilities": ["messages", "reasoning", "tools", "tool_correlation", "models", "compaction", "session_tree"],
+      "known_gaps": []
+    },
+    {
+      "runtime": "hermes",
+      "family": "hermes",
+      "live": true,
+      "archive": true,
+      "extension": "adapters/hermes/log_event.py",
+      "session_glob": "~/.hermes/state.db",
+      "capabilities": ["messages", "reasoning", "tools", "tool_correlation", "tokens", "costs", "models", "subagents", "session_lineage"],
+      "known_gaps": []
+    }
+  ]
+}

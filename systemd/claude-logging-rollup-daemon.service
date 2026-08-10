@@ -1,0 +1,15 @@
+[Unit]
+Description=claude-logging real-time cross-project rollup daemon
+After=default.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/shawn/Workspace/legion-plugins/plugins/claude-logging
+Environment=PATH=/home/shawn/.local/bin:/usr/bin
+ExecStart=/home/shawn/.local/bin/uv run --extra streaming python scripts/v2/rollup_daemon.py
+Restart=always
+RestartSec=2
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

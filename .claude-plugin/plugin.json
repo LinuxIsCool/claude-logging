@@ -1,6 +1,6 @@
 {
   "name": "logging",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Comprehensive logging, search, and visualization for Claude Code interactions",
   "author": {
     "name": "linuxiscool"

@@ -1,0 +1,16 @@
+{
+  "description": "Codex lifecycle adapter for Legion's shared logging archive.",
+  "hooks": {
+    "SessionStart": [{"hooks": [{"type": "command", "command": "uv run \"${CLAUDE_PLUGIN_ROOT}/adapters/codex/log_event.py\" SessionStart || true", "timeout": 10}]}],
+    "SessionEnd": [{"hooks": [{"type": "command", "command": "uv run \"${CLAUDE_PLUGIN_ROOT}/adapters/codex/log_event.py\" SessionEnd || true", "timeout": 3}]}],
+    "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "uv run \"${CLAUDE_PLUGIN_ROOT}/adapters/codex/log_event.py\" UserPromptSubmit || true", "timeout": 10}]}],
+    "PreToolUse": [{"hooks": [{"type": "command", "command": "uv run \"${CLAUDE_PLUGIN_ROOT}/adapters/codex/log_event.py\" PreToolUse || true", "timeout": 10}]}],
+    "PostToolUse": [{"hooks": [{"type": "command", "command": "uv run \"${CLAUDE_PLUGIN_ROOT}/adapters/codex/log_event.py\" PostToolUse || true", "timeout": 10}]}],
+    "PermissionRequest": [{"hooks": [{"type": "command", "command": "uv run \"${CLAUDE_PLUGIN_ROOT}/adapters/codex/log_event.py\" PermissionRequest || true", "timeout": 10}]}],
+    "PreCompact": [{"hooks": [{"type": "command", "command": "uv run \"${CLAUDE_PLUGIN_ROOT}/adapters/codex/log_event.py\" PreCompact || true", "timeout": 10}]}],
+    "PostCompact": [{"hooks": [{"type": "command", "command": "uv run \"${CLAUDE_PLUGIN_ROOT}/adapters/codex/log_event.py\" PostCompact || true", "timeout": 10}]}],
+    "SubagentStart": [{"hooks": [{"type": "command", "command": "uv run \"${CLAUDE_PLUGIN_ROOT}/adapters/codex/log_event.py\" SubagentStart || true", "timeout": 10}]}],
+    "SubagentStop": [{"hooks": [{"type": "command", "command": "uv run \"${CLAUDE_PLUGIN_ROOT}/adapters/codex/log_event.py\" SubagentStop || true", "timeout": 10}]}],
+    "Stop": [{"hooks": [{"type": "command", "command": "uv run \"${CLAUDE_PLUGIN_ROOT}/adapters/codex/log_event.py\" Stop || true", "timeout": 10}]}]
+  }
+}
