@@ -141,6 +141,12 @@ def test_sessions_are_primary_navigation_and_use_rows() -> None:
     assert 'data-action="toggle-session-details"' in html
     assert "state.sessionDetailsVisible = !state.sessionDetailsVisible" in html
     assert "function renderInlineEventDetails(event)" in html
+    assert "function renderRawPayloadShell(event)" in html
+    assert "function jsonSyntaxHtml(value)" in html
+    assert "data-raw-payload" in html
+    assert "details.dataset.rendered === 'true'" in html
+    assert ".raw-payload-body { max-height:65vh; overflow:auto" in html
+    assert '<pre class="inspector-json mt-3">' not in html
     assert 'data-mode="detailed"' not in html
     assert 'id="session-query"' in html
     assert 'id="session-type-filter"' in html

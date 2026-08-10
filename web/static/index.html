@@ -128,6 +128,14 @@
   .inline-event-details div { min-width:90px; }
   .inline-event-details dt { color:#6c7086; font:8px/1.3 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase; }
   .inline-event-details dd { margin-top:3px; color:#a6adc8; font:10px/1.4 'JetBrains Mono',monospace; overflow-wrap:anywhere; }
+  .raw-payload { margin-top:12px; border:1px solid #313244; border-radius:8px; overflow:hidden; background:#0b0b12; }
+  .raw-payload summary { cursor:pointer; padding:9px 11px; color:#94e2d5; font:10px/1.4 'JetBrains Mono',monospace; background:#181825; list-style:none; }
+  .raw-payload summary::-webkit-details-marker { display:none; }
+  .raw-payload summary::before { content:'▶'; display:inline-block; width:16px; color:#6c7086; }
+  .raw-payload[open] summary::before { content:'▼'; color:#a6e3a1; }
+  .raw-payload-body { max-height:65vh; overflow:auto; padding:12px 14px; }
+  .raw-json { white-space:pre; color:#a6adc8; font:10px/1.55 'JetBrains Mono',monospace; tab-size:2; }
+  .json-key { color:#89b4fa; }.json-string { color:#a6e3a1; }.json-number { color:#fab387; }.json-literal { color:#cba6f7; }
   .session-message:last-child:not(.selected) { border-bottom-color:transparent; }
   .session-message-role { color:#89b4fa; font-size:.58rem; letter-spacing:.1em; text-transform:uppercase; margin-bottom:6px; }
   .session-message.assistant .session-message-role { color:#a6e3a1; }
@@ -715,11 +723,30 @@ function toolStatusBadge(e) {
   return `<span class="badge ${color}">${glyph} ${escapeHtml(e.tool_status)}</span>`;
 }
 
+function jsonSyntaxHtml(value) {
+  const json = JSON.stringify(value ?? {}, null, 2);
+  const tokenPattern = /("(?:\\u[a-fA-F0-9]{4}|\\[^u]|[^\\"])*"\s*:)|("(?:\\u[a-fA-F0-9]{4}|\\[^u]|[^\\"])*")|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|\b(true|false|null)\b/g;
+  let cursor = 0;
+  let output = '';
+  for (const match of json.matchAll(tokenPattern)) {
+    output += escapeHtml(json.slice(cursor, match.index));
+    const token = match[0];
+    const kind = match[1] ? 'json-key' : match[2] ? 'json-string' : match[3] ? 'json-number' : 'json-literal';
+    output += `<span class="${kind}">${escapeHtml(token)}</span>`;
+    cursor = match.index + token.length;
+  }
+  return output + escapeHtml(json.slice(cursor));
+}
+
+function renderRawPayloadShell(event) {
+  const fieldCount = event.data && typeof event.data === 'object' ? Object.keys(event.data).length : 0;
+  return `<details class="raw-payload" data-raw-payload="${escapeHtml(event.event_id)}"><summary>Native payload · ${fieldCount} top-level field${fieldCount === 1 ? '' : 's'}</summary><div class="raw-payload-body" data-raw-body><span class="text-overlay0 text-xs">Open to render JSON.</span></div></details>`;
+}
+
 function renderTimelineEvent(e, index) {
   const content = sessionEventContent(e);
   const primary = ['UserPromptSubmit', 'AssistantResponse'].includes(e.type);
-  const raw = state.transcriptMode === 'raw'
-    ? `<pre class="inspector-json mt-3">${escapeHtml(JSON.stringify(e.data || {}, null, 2))}</pre>` : '';
+  const raw = state.transcriptMode === 'raw' ? renderRawPayloadShell(e) : '';
   return `
     <article id="event-${escapeHtml(e.event_id)}" class="timeline-event card p-4 mb-2 cursor-pointer ${primary ? '' : 'compact'}" data-session-event="${escapeHtml(e.event_id)}">
       <div class="flex items-center gap-2 text-xs flex-wrap">
@@ -858,6 +885,18 @@ function wireTranscriptInteractions(root, t) {
   root.querySelectorAll('[data-map-event]:not([data-interaction-wired])').forEach(element => {
     element.dataset.interactionWired = 'true';
     element.addEventListener('click', () => toggleSessionSelection(t, element.dataset.mapEvent));
+  });
+  root.querySelectorAll('[data-raw-payload]:not([data-interaction-wired])').forEach(details => {
+    details.dataset.interactionWired = 'true';
+    details.addEventListener('click', event => event.stopPropagation());
+    details.addEventListener('toggle', () => {
+      if (!details.open || details.dataset.rendered === 'true') return;
+      const event = (t.events || []).find(item => item.event_id === details.dataset.rawPayload);
+      const body = details.querySelector('[data-raw-body]');
+      if (!event || !body) return;
+      body.innerHTML = `<pre class="raw-json">${jsonSyntaxHtml(event.data || {})}</pre>`;
+      details.dataset.rendered = 'true';
+    });
   });
 }
 
