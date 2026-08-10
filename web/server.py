@@ -37,8 +37,12 @@ for p in (_PLUGIN_ROOT, _CLAUDE_WEBUI):
 
 from claude_webui import WebuiKernel  # noqa: E402
 
-from web.logging_accessor import NAMESPACE, LoggingAccessor  # noqa: E402
-from web.logging_handler import LoggingKernel  # noqa: E402
+try:  # Package-isolated Hub mount.
+    from .logging_accessor import NAMESPACE, LoggingAccessor  # type: ignore[import-not-found]  # noqa: E402
+    from .logging_handler import LoggingKernel  # type: ignore[import-not-found]  # noqa: E402
+except ImportError:  # Direct ``python web/server.py`` standalone launch.
+    from web.logging_accessor import NAMESPACE, LoggingAccessor  # noqa: E402
+    from web.logging_handler import LoggingKernel  # noqa: E402
 
 STATIC_DIR: Path = Path(__file__).resolve().parent / "static"
 DEFAULT_PORT = 8870
