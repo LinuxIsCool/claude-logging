@@ -311,6 +311,65 @@ def test_session_catalog_has_row_metadata(tmp_path: Path) -> None:
     assert card["tags"] == ["shawn"]
 
 
+def test_persona_catalogue_comes_from_identity_emoji_and_colours(tmp_path: Path) -> None:
+    root = _index(tmp_path)
+    identity, colours, emoji = tmp_path / "identity.db", tmp_path / "colours.db", tmp_path / "emoji.db"
+    con = sqlite3.connect(identity)
+    con.execute("CREATE TABLE principals(id TEXT,kind TEXT,display_name TEXT,owner_ref TEXT,metadata_json TEXT,disabled_at TEXT)")
+    con.execute("INSERT INTO principals VALUES('persona:gardener','persona','Knowledge Gardener','person:shawn','{}',NULL)")
+    con.commit(); con.close()
+    con = sqlite3.connect(colours)
+    con.execute("CREATE TABLE colours(entity_key TEXT,hex TEXT,assigned_by TEXT)")
+    con.execute("INSERT INTO colours VALUES('persona:gardener','#56e28e','identity-test')")
+    con.commit(); con.close()
+    con = sqlite3.connect(emoji)
+    con.execute("CREATE TABLE emoji_mappings(entity_key TEXT,emoji TEXT)")
+    con.execute("INSERT INTO emoji_mappings VALUES('persona:gardener','🌱')")
+    con.commit(); con.close()
+
+    personas = LoggingAccessor(
+        root, identity_path=identity, colours_path=colours, emoji_path=emoji,
+        agents_path=tmp_path / "missing-agents.db",
+    ).personas()
+    assert personas == [{
+        "key": "persona:gardener", "slug": "gardener", "label": "Knowledge Gardener",
+        "owner_ref": "person:shawn", "emoji": "🌱",
+        "colour": {"hex": "#56e28e", "source": "claude-colours", "assigned_by": "identity-test"},
+        "observed_events": 0, "identity_source": "legion-identity",
+    }]
+
+
+def test_session_catalog_resolves_source_session_through_agents_alias(tmp_path: Path) -> None:
+    root, agents = _index(tmp_path), tmp_path / "agents.db"
+    con = sqlite3.connect(agents)
+    con.execute("""CREATE TABLE session_aliases(
+        namespace TEXT, external_id TEXT, session_id TEXT, confidence TEXT,
+        source TEXT, asserted_at TEXT, retracted_at TEXT)""")
+    con.execute("INSERT INTO session_aliases VALUES(?,?,?,?,?,?,NULL)", (
+        "harness:claude-code", "session", "legion-session-1", "authoritative",
+        "test:exact-native-session", "2026-08-09T00:00:00Z",
+    ))
+    con.commit(); con.close()
+
+    card = LoggingAccessor(root, agents_path=agents).sessions({})[0]
+    assert card["identity"] == {
+        "native_refs": ["logging:claude:project:session"],
+        "resolution_state": "resolved",
+        "canonical_agent_session_id": "legion-session-1",
+        "resolution_evidence": [{
+            "namespace": "harness:claude-code", "external_id": "session",
+            "confidence": "authoritative", "source": "test:exact-native-session",
+        }],
+    }
+
+
+def test_logging_ui_has_no_hard_coded_persona_catalogue() -> None:
+    html = (Path(__file__).parents[1] / "web/static/index.html").read_text()
+    assert "const PERSONAS" not in html
+    assert "await loadPersonas()" in html
+    assert "persona:unassigned" not in html
+
+
 def test_session_catalog_handles_session_without_human_prompt(tmp_path: Path) -> None:
     root = _index(tmp_path)
     con = sqlite3.connect(root / "_index/index.db")

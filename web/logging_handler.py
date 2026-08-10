@@ -80,6 +80,15 @@ class LoggingHandler(WebuiHandler):
             self._send_json(payload)
             return
 
+        if path == "/api/personas":
+            try:
+                payload = self.accessor.personas()  # type: ignore[attr-defined]
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": str(exc)}, status=500)
+                return
+            self._send_json(payload)
+            return
+
         if path == "/api/search":
             try:
                 payload = self.accessor.search(params)  # type: ignore[attr-defined]

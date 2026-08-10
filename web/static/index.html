@@ -15,11 +15,7 @@
   .text-mauve { color:#a6e3a1 !important; }
   /* Persona color rails (3-px left border on cards) */
   .persona-rail { width: 3px; flex-shrink: 0; }
-  .persona-matt { background: #cba6f7; }
-  .persona-shawn { background: #89b4fa; }
-  .persona-darren { background: #94e2d5; }
-  .persona-eve { background: #f5c2e7; }
-  .persona-claude { background: #6c7086; }
+  .persona-rail { background:var(--persona-colour,#6c7086); }
   /* Card surface */
   .card { background: #181825; border: 1px solid #313244; border-radius: 6px; transition: border-color 0.15s; }
   .card:hover { border-color: #a6e3a166; }
@@ -60,10 +56,7 @@
     display: inline-block; padding: 0.125rem 0.5rem; border-radius: 9999px;
     font-size: 0.7rem; font-weight: 500; background: #313244; color: #a6adc8;
   }
-  .badge.matt { background: rgba(203,166,247,0.15); color: #cba6f7; }
-  .badge.shawn { background: rgba(137,180,250,0.15); color: #89b4fa; }
-  .badge.darren { background: rgba(148,226,213,0.15); color: #94e2d5; }
-  .badge.eve { background: rgba(245,194,231,0.15); color: #f5c2e7; }
+  .badge.persona { background:color-mix(in srgb,var(--persona-colour,#6c7086) 15%,transparent); color:var(--persona-colour,#9399b2); }
   .badge-tool { background: rgba(250,179,135,0.15); color: #fab387; }
   /* Empty state */
   .empty { padding: 4rem 2rem; text-align: center; color: #6c7086; }
@@ -289,8 +282,6 @@
 <script>
 'use strict';
 
-const PERSONAS = ['matt', 'shawn', 'darren', 'eve', 'legion'];
-
 const state = {
   tab: 'sessions',
   projectSlug: '',
@@ -316,6 +307,7 @@ const state = {
   transcriptMode: 'clean',
   sessionDetailsVisible: false,
   selectedEventId: '',
+  personas: [],
   sessionQuery: '',
   sessionTypeFilter: '',
   sessionScrollY: 0,
@@ -378,10 +370,9 @@ function fmtTime(iso) {
   } catch { return iso; }
 }
 
-function personaCls(persona) {
-  if (!persona) return '';
-  return PERSONAS.includes(persona) ? persona : '';
-}
+function personaRecord(slug) { return state.personas.find(persona => persona.slug === slug) || null; }
+function personaStyle(slug) { return `--persona-colour:${personaRecord(slug)?.colour?.hex || '#6c7086'}`; }
+function personaLabel(slug) { const persona=personaRecord(slug); return persona ? `${persona.emoji} ${persona.label}` : (slug || 'Persona unavailable'); }
 
 function escapeHtml(s) {
   if (s == null) return '';
@@ -407,15 +398,13 @@ function shortenSlug(slug) {
 // ── Cards ──────────────────────────────────────────────────────────
 
 function renderPromptCard(p) {
-  const persona = p.persona || 'claude';
-  const personaCls_ = `persona-${personaCls(persona) || 'claude'}`;
-  const badgeCls = personaCls(persona);
+  const persona = p.persona || '';
   return `
     <div class="card flex animate-fade-in cursor-pointer mb-2" data-event-id="${escapeHtml(p.event_id)}" data-session="${escapeHtml(p.session_id || '')}">
-      <div class="persona-rail ${personaCls_}"></div>
+      <div class="persona-rail" style="${personaStyle(persona)}"></div>
       <div class="flex-1 p-3 min-w-0">
         <div class="flex items-center gap-2 text-xs mb-2 flex-wrap">
-          <span class="badge ${badgeCls}">${escapeHtml(persona)}</span>
+          <span class="badge persona" style="${personaStyle(persona)}">${escapeHtml(personaLabel(persona))}</span>
           <span class="badge text-sky">${escapeHtml(p.runtime || 'claude')}</span>
           <span class="text-overlay1 truncate" title="${escapeHtml(p.project_slug)}">${escapeHtml(shortenSlug(p.project_slug))}</span>
           <span class="text-overlay0 ml-auto" data-age data-iso="${escapeHtml(p.ts)}">${fmtTime(p.ts)}</span>
@@ -435,7 +424,7 @@ function renderEventRow(e) {
     <div class="card p-3 animate-fade-in mb-2">
       <div class="flex items-center gap-2 text-xs mb-2 flex-wrap">
         <span class="badge ${headerColor}">${escapeHtml(e.type)}</span>
-        ${e.persona ? `<span class="badge ${personaCls(e.persona)}">${escapeHtml(e.persona)}</span>` : ''}
+        ${e.persona ? `<span class="badge persona" style="${personaStyle(e.persona)}">${escapeHtml(personaLabel(e.persona))}</span>` : ''}
         ${e.tool_name ? `<span class="badge badge-tool">${escapeHtml(e.tool_name)}</span>` : ''}
         <span class="text-overlay0 ml-auto" data-age data-iso="${escapeHtml(e.ts)}">${fmtTime(e.ts)}</span>
       </div>
@@ -450,7 +439,7 @@ function renderSessionRow(t) {
   const sourceKinds = (t.source_kinds || ['live']).map(kind => `<span class="badge text-yellow">${escapeHtml(kind)}</span>`).join('');
   return `
     <a href="${escapeHtml(sessionUrl(t.session_id, t.project_slug))}" class="card flex animate-fade-in cursor-pointer mb-2" data-session-row="${escapeHtml(t.session_id)}" data-session-project="${escapeHtml(t.project_slug)}">
-      <div class="persona-rail persona-${personaCls(t.persona) || 'claude'}"></div>
+      <div class="persona-rail" style="${personaStyle(t.persona)}"></div>
       <div class="flex-1 p-3 min-w-0">
         <div class="flex items-center gap-2 text-xs mb-1 flex-wrap">
           ${runtimes}${sourceKinds}${tags}
@@ -572,11 +561,11 @@ function renderDetail() {
     return;
   }
   const p = state.currentPromptDetail;
-  const persona = p.persona || 'claude';
+  const persona = p.persona || '';
   slot.innerHTML = `
     <div class="font-pixel text-mauve mb-3 text-[0.65rem]">DETAIL</div>
     <div class="space-y-2 text-xs">
-      <div><span class="text-overlay0">persona:</span> <span class="badge ${personaCls(persona)}">${escapeHtml(persona)}</span></div>
+      <div><span class="text-overlay0">persona:</span> <span class="badge persona" style="${personaStyle(persona)}">${escapeHtml(personaLabel(persona))}</span></div>
       <div><span class="text-overlay0">project:</span> <span class="text-subtext1">${escapeHtml(shortenSlug(p.project_slug))}</span></div>
       <div><span class="text-overlay0">session:</span> <code class="text-mauve">${escapeHtml((p.session_id || '').slice(0, 8))}…</code></div>
       <div><span class="text-overlay0">time:</span> <span class="text-subtext1">${escapeHtml(p.ts)}</span></div>
@@ -1461,14 +1450,13 @@ async function loadProjects() {
 
 function renderPersonaFilter() {
   const root = document.getElementById('persona-filter');
-  const items = [{ slug: '', label: 'all' }, ...PERSONAS.map(p => ({ slug: p, label: p }))];
+  const items = [{ slug: '', label: 'all', emoji: '', colour: {hex:'#6c7086'} }, ...state.personas];
   root.innerHTML = items.map(p => {
-    const cls = p.slug ? `persona-${personaCls(p.slug) || 'claude'}` : '';
     const active = state.personaFilter === p.slug;
     return `
       <div class="persona-item flex items-center gap-2 px-1 py-0.5 rounded cursor-pointer ${active ? 'bg-surface0' : 'hover:bg-surface0'}" data-persona="${escapeHtml(p.slug)}">
-        <span class="persona-rail h-3 ${cls}"></span>
-        <span class="${active ? 'text-mauve' : 'text-subtext0'}">${escapeHtml(p.label)}</span>
+        <span class="persona-rail h-3" style="--persona-colour:${escapeHtml(p.colour?.hex || '#6c7086')}"></span>
+        <span class="${active ? 'text-mauve' : 'text-subtext0'}">${escapeHtml(p.slug ? `${p.emoji} ${p.label}` : p.label)}</span>
       </div>
     `;
   }).join('');
@@ -1479,6 +1467,17 @@ function renderPersonaFilter() {
       tabRenderers[state.tab]();
     });
   });
+}
+
+async function loadPersonas() {
+  try {
+    const personas = await api('/api/personas');
+    state.personas = Array.isArray(personas) ? personas : [];
+  } catch (error) {
+    state.personas = [];
+    console.warn('persona catalogue unavailable:', error);
+  }
+  renderPersonaFilter();
 }
 
 // ── Wire up ────────────────────────────────────────────────────────
@@ -1725,7 +1724,7 @@ function startLivePush() {
 // Boot
 (async () => {
   try { state.sessionView = localStorage.getItem('legion.logging.sessions.view') === 'table' ? 'table' : 'cards'; } catch (error) {}
-  renderPersonaFilter();
+  await loadPersonas();
   applyLocation();
   if (state.tab === 'sessions' && !state.currentSession) {
     history.replaceState({route: 'sessions', tab: 'sessions', catalogScrollY: state.catalogScrollY}, '', catalogUrl());

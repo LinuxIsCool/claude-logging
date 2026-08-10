@@ -69,6 +69,10 @@ OMP_EXTENSION = Path(__file__).resolve().parents[1] / "adapters" / "omp" / "exte
 HERMES_DB = Path.home() / ".hermes" / "state.db"
 HERMES_CONFIG = Path.home() / ".hermes" / "config.yaml"
 HERMES_HOOK = Path(__file__).resolve().parents[1] / "adapters" / "hermes" / "log_event.py"
+IDENTITY_DB = Path.home() / ".local/state/legion/identity/identity.db"
+COLOURS_DB = Path.home() / ".local/state/legion/colours/colours.db"
+EMOJI_DB = Path.home() / ".local/state/legion/emoji/emoji.db"
+AGENTS_DB = Path.home() / ".claude/local/agents/registry.db"
 
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 500
@@ -146,11 +150,17 @@ class LoggingAccessor:
     project preview is insufficient).
     """
 
-    def __init__(self, logging_root: Path | None = None, *, claude_web_enabled: bool | None = None) -> None:
+    def __init__(self, logging_root: Path | None = None, *, claude_web_enabled: bool | None = None,
+                 identity_path: Path | None = None, colours_path: Path | None = None,
+                 emoji_path: Path | None = None, agents_path: Path | None = None) -> None:
         self.root = logging_root or LOGGING_ROOT
         self.index_db = self.root / "_index" / "index.db"
         self.title_db = self.root / "_index" / "session-metadata.db"
         self.claude_web_enabled = logging_root is None if claude_web_enabled is None else claude_web_enabled
+        self.identity_path = identity_path or IDENTITY_DB
+        self.colours_path = colours_path or COLOURS_DB
+        self.emoji_path = emoji_path or EMOJI_DB
+        self.agents_path = agents_path or AGENTS_DB
         self._start_time = time.time()
 
     # ── Accessor Protocol ───────────────────────────────────────────
@@ -437,6 +447,90 @@ class LoggingAccessor:
 
     # ── Extra routes (consumed by LoggingHandler subclass) ──────────
 
+    def personas(self) -> list[dict[str, Any]]:
+        """Canonical persona catalogue decorated by shared emoji and colours."""
+        if not self.identity_path.is_file():
+            return []
+        counts: dict[str, int] = {}
+        if self.index_db.is_file():
+            with _open_ro(self.index_db) as con:
+                counts = {str(row[0]): int(row[1]) for row in con.execute(
+                    "SELECT persona,count(*) FROM events_index WHERE persona IS NOT NULL GROUP BY persona"
+                )}
+        colours: dict[str, tuple[str, str]] = {}
+        if self.colours_path.is_file():
+            with _open_ro(self.colours_path) as con:
+                colours = {str(row[0]): (str(row[1]), str(row[2])) for row in con.execute(
+                    "SELECT entity_key,hex,assigned_by FROM colours WHERE entity_key LIKE 'persona:%'"
+                )}
+        emoji: dict[str, str] = {}
+        if self.emoji_path.is_file():
+            with _open_ro(self.emoji_path) as con:
+                emoji = {str(row[0]): str(row[1]) for row in con.execute(
+                    "SELECT entity_key,emoji FROM emoji_mappings WHERE entity_key LIKE 'persona:%'"
+                )}
+        with _open_ro(self.identity_path) as con:
+            rows = con.execute(
+                "SELECT id,display_name,owner_ref,metadata_json FROM principals "
+                "WHERE kind='persona' AND disabled_at IS NULL ORDER BY display_name COLLATE NOCASE"
+            ).fetchall()
+        result = []
+        for row in rows:
+            key = str(row["id"])
+            slug = key.removeprefix("persona:")
+            metadata = json.loads(row["metadata_json"] or "{}")
+            colour = colours.get(key)
+            result.append({
+                "key": key, "slug": slug, "label": row["display_name"],
+                "owner_ref": row["owner_ref"],
+                "emoji": emoji.get(key) or metadata.get("glyph") or metadata.get("emoji") or "◆",
+                "colour": {
+                    "hex": colour[0] if colour else "#6c7086",
+                    "source": "claude-colours" if colour else "neutral-fallback",
+                    "assigned_by": colour[1] if colour else None,
+                },
+                "observed_events": counts.get(slug, 0),
+                "identity_source": "legion-identity",
+            })
+        return result
+
+    def _session_identity(self, session_id: str, runtimes: list[str],
+                          project_slugs: list[str]) -> dict[str, Any]:
+        refs = [
+            f"logging:{runtime}:{project}:{session_id}"
+            for runtime in runtimes for project in project_slugs
+        ]
+        namespaces = {
+            "claude": "harness:claude-code", "codex": "harness:codex",
+            "prime-agent": "harness:prime-agent", "pi": "harness:pi",
+            "omp": "harness:omp", "hermes": "harness:hermes",
+        }
+        resolved: set[str] = set()
+        evidence: list[dict[str, str]] = []
+        if self.agents_path.is_file():
+            with _open_ro(self.agents_path) as con:
+                for runtime in runtimes:
+                    namespace = namespaces.get(runtime)
+                    if not namespace:
+                        continue
+                    row = con.execute(
+                        """SELECT session_id,confidence,source FROM session_aliases
+                           WHERE namespace=? AND external_id=? AND retracted_at IS NULL""",
+                        (namespace, session_id),
+                    ).fetchone()
+                    if row:
+                        resolved.add(str(row["session_id"]))
+                        evidence.append({
+                            "namespace": namespace, "external_id": session_id,
+                            "confidence": str(row["confidence"]), "source": str(row["source"]),
+                        })
+        state = "resolved" if len(resolved) == 1 else "ambiguous" if resolved else "unresolved"
+        return {
+            "native_refs": refs, "resolution_state": state,
+            "canonical_agent_session_id": next(iter(resolved)) if len(resolved) == 1 else None,
+            "resolution_evidence": evidence,
+        }
+
     def prompts(self, params: dict[str, Any]) -> list[dict[str, Any]]:
         """Reverse-chrono cross-project prompt list.
 
@@ -601,6 +695,9 @@ class LoggingAccessor:
                 item["runtimes"] = (item.get("runtimes") or "claude").split(",")
                 item["source_kinds"] = (item.get("source_kinds") or "live").split(",")
                 item["project_slug"] = project_slugs[0] if project_slugs else ""
+                item["identity"] = self._session_identity(
+                    item["session_id"], item["runtimes"], project_slugs,
+                )
                 opening = item.get("opening_prompt") or ""
                 opening_line = (opening.splitlines() or [""])[0]
                 generated = generated_titles.get(item["session_id"])
