@@ -117,7 +117,10 @@
   .session-card-property { min-width:0; padding:7px 8px; background:#11111b; }
   .session-card-property b { display:block; color:#cdd6f4; font-size:.68rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .session-card-property span { display:block; color:#6c7086; font-size:.52rem; letter-spacing:.08em; text-transform:uppercase; margin-top:2px; }
-  .session-message { margin:3px 0; padding:10px 12px; border:1px solid transparent; border-bottom-color:#31324499; border-radius:8px; transition:background .16s ease,border-color .16s ease,box-shadow .16s ease; }
+  .session-message { margin:3px 0; padding:10px 12px; border:1px solid transparent; border-bottom-color:#31324499; border-radius:8px; cursor:pointer; transition:background .16s ease,border-color .16s ease,box-shadow .16s ease,transform .16s ease; }
+  .session-message.in-viewport:not(.selected) { background:linear-gradient(100deg,#89b4fa0d,#89b4fa08 65%,transparent); border-color:#89b4fa2e; box-shadow:inset 2px 0 #89b4fa88; }
+  .session-message:hover:not(.selected) { background:linear-gradient(100deg,#89b4fa18,#89b4fa0b 70%,transparent); border-color:#89b4fa66; box-shadow:inset 3px 0 #89b4fa,0 5px 18px #0003; transform:translateX(2px); }
+  .session-message.selected:hover { box-shadow:0 0 0 1px #cba6f788,0 0 30px #cba6f73d,inset 3px 0 #cba6f7; }
   .session-message:last-child:not(.selected) { border-bottom-color:transparent; }
   .session-message-role { color:#89b4fa; font-size:.58rem; letter-spacing:.1em; text-transform:uppercase; margin-bottom:6px; }
   .session-message.assistant .session-message-role { color:#a6e3a1; }
@@ -646,6 +649,7 @@ function wireConversationMinimap(root) {
   window._conversationMinimapObserver = new IntersectionObserver(entries => {
     for (const entry of entries) {
       const eventId = entry.target.dataset.sessionEvent;
+      entry.target.classList.toggle('in-viewport', entry.isIntersecting);
       if (entry.isIntersecting) visible.add(eventId); else visible.delete(eventId);
     }
     if (!frame) frame = requestAnimationFrame(paint);

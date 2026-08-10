@@ -120,8 +120,11 @@ def test_sessions_are_primary_navigation_and_use_rows() -> None:
     assert "events[0].event_id, false, false" not in html
     assert "new IntersectionObserver(entries =>" in html
     assert "link.classList.toggle('in-viewport', visible.has(eventId))" in html
+    assert "entry.target.classList.toggle('in-viewport', entry.isIntersecting)" in html
     assert "wireConversationMinimap(main)" in html
     assert ".session-map-link.in-viewport" in html
+    assert ".session-message.in-viewport:not(.selected)" in html
+    assert ".session-message:hover:not(.selected)" in html
     assert ".session-map-link.active{background:#cba6f719" in html
     assert ".timeline-event.selected { border-color:#cba6f7" in html
     assert "class=\"session-breadcrumbs session-page-breadcrumbs\"" in html
