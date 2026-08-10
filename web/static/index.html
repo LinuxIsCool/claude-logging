@@ -90,6 +90,12 @@
   .message-detail { max-width:1100px; margin:0 auto; }
   .message-detail-content { padding:24px 28px; color:#cdd6f4; font:15px/1.75 system-ui,sans-serif; }
   .message-detail-metadata { padding:18px 22px; border-top:1px solid #313244; background:#11111b88; }
+  .message-detail-nav { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:11px 18px; border-top:1px solid #313244; background:#181825; }
+  .message-nav-button { color:#89b4fa; font:10px/1.3 'JetBrains Mono',monospace; padding:7px 9px; border-radius:6px; }
+  .message-nav-button:hover { color:#cba6f7; background:#cba6f712; }.message-nav-button:disabled{color:#45475a;cursor:not-allowed;background:transparent}
+  .message-context { margin:0 22px 20px; padding:14px; border:1px solid #313244; border-radius:8px; background:#11111b88; }
+  .message-context-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:8px; }
+  .message-context-item { padding:10px; border:1px solid #313244; border-radius:7px; background:#181825; color:#a6adc8; font:10px/1.5 'JetBrains Mono',monospace; overflow-wrap:anywhere; }
   /* Session collection: trading-card reader + dense table, shared with the
      Agents and Ventures view-switch convention. */
   .session-toolbar { display:flex; gap:.6rem; align-items:center; flex-wrap:wrap; margin-bottom:1rem; }
@@ -808,8 +814,8 @@ function renderSessionInspector(e) {
       <div><span class="text-overlay0">project</span><br>${escapeHtml(shortenSlug(e.project_slug))}</div>
       <div><span class="text-overlay0">event id</span><br><code>${escapeHtml(e.event_id)}</code></div>
     </div>
-    <details open><summary class="text-xs text-mauve cursor-pointer mb-2">Native payload</summary>
-      ${e.data_loaded === false ? '<div class="text-overlay0 text-xs">Loading native payload…</div>' : `<pre class="inspector-json">${escapeHtml(JSON.stringify(e.data || {}, null, 2))}</pre>`}
+    <details class="raw-payload"><summary>Native payload</summary>
+      <div class="raw-payload-body">${e.data_loaded === false ? '<div class="text-overlay0 text-xs">Loading native payload…</div>' : `<pre class="raw-json">${jsonSyntaxHtml(e.data || {})}</pre>`}</div>
     </details>`;
 }
 
@@ -889,7 +895,39 @@ function wireTranscriptInteractions(root, t) {
   });
 }
 
+function conversationalEvents(t) {
+  return (t.events || []).filter(event => ['UserPromptSubmit', 'AssistantResponse'].includes(event.type));
+}
+
+function renderMessageContext(event) {
+  const artifacts = Array.isArray(event.artifacts) ? event.artifacts : [];
+  const items = [];
+  if (event.tool_name || event.tool_call_id) {
+    items.push(`<div class="message-context-item"><span class="text-overlay0">tool call</span><br><span class="text-peach">${escapeHtml(event.tool_name || 'unnamed tool')}</span>${event.tool_status ? ` · ${escapeHtml(event.tool_status)}` : ''}${event.tool_call_id ? `<br><code>${escapeHtml(event.tool_call_id)}</code>` : ''}</div>`);
+  }
+  for (const artifact of artifacts) {
+    const label = typeof artifact === 'string'
+      ? artifact
+      : artifact.path || artifact.name || artifact.uri || artifact.type || JSON.stringify(artifact);
+    items.push(`<div class="message-context-item"><span class="text-overlay0">artifact</span><br>${escapeHtml(label)}</div>`);
+  }
+  if (!items.length) return '';
+  return `<section class="message-context"><div class="font-pixel text-green text-[0.55rem] mb-3">MESSAGE CONTEXT</div><div class="message-context-grid">${items.join('')}</div></section>`;
+}
+
+function navigateMessageDetail(t, eventId, {replace = false} = {}) {
+  state.currentMessageId = eventId;
+  const url = messageUrl(t.session_id, state.currentTranscriptProject || t.project_slug || '', eventId);
+  const historyState = {route: 'message-detail', sessionDetail: true, messageId: eventId};
+  replace ? history.replaceState(historyState, '', url) : history.pushState(historyState, '', url);
+  renderTranscriptTab({useTranscriptCache: true});
+}
+
 function openMessageDetail(sessionId, projectSlug, eventId) {
+  if (state.currentTranscriptData?.session_id === sessionId) {
+    navigateMessageDetail(state.currentTranscriptData, eventId);
+    return;
+  }
   state.currentMessageId = eventId;
   history.pushState({route: 'message-detail', sessionDetail: true}, '', messageUrl(sessionId, projectSlug, eventId));
   renderRoute();
@@ -1079,6 +1117,10 @@ async function renderTranscriptTab({useCache = false, useTranscriptCache = false
         if (!detail.error) Object.assign(message, detail);
       }
       const assistant = message.type === 'AssistantResponse';
+      const messages = conversationalEvents(t);
+      const messageIndex = messages.findIndex(event => event.event_id === message.event_id);
+      const previousMessage = messageIndex > 0 ? messages[messageIndex - 1] : null;
+      const nextMessage = messageIndex >= 0 && messageIndex < messages.length - 1 ? messages[messageIndex + 1] : null;
       main.innerHTML = `<article class="message-detail card">
         <header class="session-masthead">
           <nav class="session-breadcrumbs" aria-label="Breadcrumb"><button data-action="back-to-sessions">Legion</button><span>/</span><button data-action="back-to-sessions">Sessions</button><span>/</span><button data-action="back-to-transcript">${escapeHtml(t.title)}</button><span>/</span><code>${escapeHtml(message.event_id)}</code></nav>
@@ -1086,10 +1128,17 @@ async function renderTranscriptTab({useCache = false, useTranscriptCache = false
           <h1 class="session-detail-title">${assistant ? 'Agent response' : 'User prompt'}</h1>
         </header>
         <div class="message-detail-content markdown-body">${markdownHtml(sessionEventContent(message))}</div>
+        ${renderMessageContext(message)}
+        <nav class="message-detail-nav" aria-label="Message navigation">
+          <button class="message-nav-button" data-message-nav="${escapeHtml(previousMessage?.event_id || '')}" ${previousMessage ? '' : 'disabled'}>← Previous message</button>
+          <span class="text-overlay0 text-[0.62rem]">${messageIndex + 1} of ${messages.length}</span>
+          <button class="message-nav-button" data-message-nav="${escapeHtml(nextMessage?.event_id || '')}" ${nextMessage ? '' : 'disabled'}>Next message →</button>
+        </nav>
         <div class="message-detail-metadata">${renderSessionInspector(message)}</div>
       </article>`;
       main.querySelectorAll('[data-action="back-to-sessions"]').forEach(button => button.addEventListener('click', backToSessions));
       main.querySelector('[data-action="back-to-transcript"]')?.addEventListener('click', backToTranscript);
+      main.querySelectorAll('[data-message-nav]:not(:disabled)').forEach(button => button.addEventListener('click', () => navigateMessageDetail(t, button.dataset.messageNav)));
       return;
     }
     const events = state.transcriptMode === 'clean'
@@ -1487,8 +1536,21 @@ document.querySelectorAll('.view-nav-item[data-tab]').forEach(el => {
 });
 
 document.addEventListener('keydown', event => {
-  if (event.key !== 'Escape' || !state.currentSession || !state.selectedEventId || state.currentMessageId) return;
-  clearSessionSelection({session_id: state.currentSession, project_slug: state.currentTranscriptProject});
+  if (!state.currentSession || userIsEditing()) return;
+  if (state.currentMessageId && ['ArrowLeft', 'ArrowRight'].includes(event.key)) {
+    const transcript = state.currentTranscriptData;
+    const messages = conversationalEvents(transcript || {events: []});
+    const index = messages.findIndex(message => message.event_id === state.currentMessageId);
+    const target = messages[index + (event.key === 'ArrowLeft' ? -1 : 1)];
+    if (target) {
+      event.preventDefault();
+      navigateMessageDetail(transcript, target.event_id);
+    }
+    return;
+  }
+  if (event.key !== 'Escape') return;
+  if (state.currentMessageId) backToTranscript();
+  else if (state.selectedEventId) clearSessionSelection({session_id: state.currentSession, project_slug: state.currentTranscriptProject});
 });
 
 document.getElementById('project-filter').addEventListener('change', (e) => {

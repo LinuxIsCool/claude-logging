@@ -108,6 +108,12 @@ def test_sessions_are_primary_navigation_and_use_rows() -> None:
     assert "function messageUrl(" in html
     assert "function openMessageDetail(" in html
     assert "function backToTranscript()" in html
+    assert "function navigateMessageDetail(t, eventId" in html
+    assert "function conversationalEvents(t)" in html
+    assert "function renderMessageContext(event)" in html
+    assert 'aria-label="Message navigation"' in html
+    assert "['ArrowLeft', 'ArrowRight'].includes(event.key)" in html
+    assert "if (state.currentMessageId) backToTranscript()" in html
     assert "const messageMatch = localPath.match" in html
     assert "const mapEvents = events.filter(e => ['UserPromptSubmit','AssistantResponse'].includes(e.type))" in html
     assert "function renderConversationMapLink(e)" in html
