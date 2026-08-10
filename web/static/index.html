@@ -121,6 +121,9 @@
   .session-message.in-viewport:not(.selected) { background:linear-gradient(100deg,#89b4fa0d,#89b4fa08 65%,transparent); border-color:#89b4fa2e; box-shadow:inset 2px 0 #89b4fa88; }
   .session-message:hover:not(.selected) { background:linear-gradient(100deg,#89b4fa18,#89b4fa0b 70%,transparent); border-color:#89b4fa66; box-shadow:inset 3px 0 #89b4fa,0 5px 18px #0003; transform:translateX(2px); }
   .session-message.selected:hover { box-shadow:0 0 0 1px #cba6f788,0 0 30px #cba6f73d,inset 3px 0 #cba6f7; }
+  .message-actions { display:flex; justify-content:flex-end; margin-top:8px; }
+  .message-details-link { color:#7f849c; font:9px/1.2 'JetBrains Mono',monospace; letter-spacing:.04em; padding:4px 7px; border-radius:5px; }
+  .message-details-link:hover { color:#cba6f7; background:#cba6f712; }
   .session-message:last-child:not(.selected) { border-bottom-color:transparent; }
   .session-message-role { color:#89b4fa; font-size:.58rem; letter-spacing:.1em; text-transform:uppercase; margin-bottom:6px; }
   .session-message.assistant .session-message-role { color:#a6e3a1; }
@@ -470,6 +473,7 @@ function renderSessionMessage(event) {
   return `<article ${anchor} class="session-message timeline-event ${assistant ? 'assistant' : 'user'}">
     <div class="session-message-role">${assistant ? '◆ assistant' : '▶ user'}</div>
     <div class="markdown">${markdownHtml(content)}</div>
+    <div class="message-actions"><button class="message-details-link" data-message-detail="${escapeHtml(event.event_id)}">Details ↗</button></div>
   </article>`;
 }
 
@@ -703,6 +707,7 @@ function renderTimelineEvent(e, index) {
       ${(e.artifacts || []).length ? `<div class="text-[0.68rem] text-yellow mt-2">${e.artifacts.length} attached artifact${e.artifacts.length === 1 ? '' : 's'}</div>` : ''}
       ${e.content_truncated ? '<div class="text-[0.65rem] text-overlay0 mt-2">Preview truncated · select event for complete payload</div>' : ''}
       ${raw}
+      <div class="message-actions"><button class="message-details-link" data-message-detail="${escapeHtml(e.event_id)}">Details ↗</button></div>
     </article>`;
 }
 
@@ -803,9 +808,9 @@ function clearSessionSelection(t, updateUrl = true) {
   }
 }
 
-function toggleSessionSelection(t, eventId) {
+function toggleSessionSelection(t, eventId, scroll = true) {
   if (state.selectedEventId === eventId) clearSessionSelection(t);
-  else selectSessionEvent(t, eventId, true);
+  else selectSessionEvent(t, eventId, scroll);
 }
 
 function openMessageDetail(sessionId, projectSlug, eventId) {
@@ -1060,7 +1065,12 @@ async function renderTranscriptTab({useCache = false} = {}) {
       state.sessionTypeFilter = event.target.value;
       renderTranscriptTab();
     });
-    main.querySelectorAll('[data-session-event]').forEach(el => el.addEventListener('click', () => openMessageDetail(t.session_id, state.currentTranscriptProject || t.project_slug || '', el.dataset.sessionEvent)));
+    main.querySelectorAll('[data-session-event]').forEach(el => el.addEventListener('click', () => toggleSessionSelection(t, el.dataset.sessionEvent, false)));
+    main.querySelectorAll('[data-message-detail]').forEach(button => button.addEventListener('click', event => {
+      event.preventDefault();
+      event.stopPropagation();
+      openMessageDetail(t.session_id, state.currentTranscriptProject || t.project_slug || '', button.dataset.messageDetail);
+    }));
     main.querySelectorAll('[data-map-event]').forEach(el => el.addEventListener('click', () => toggleSessionSelection(t, el.dataset.mapEvent)));
     wireConversationMinimap(main);
     main.querySelectorAll('[data-lineage-session]').forEach(el => el.addEventListener('click', () => openSession(el.dataset.lineageSession, '')));

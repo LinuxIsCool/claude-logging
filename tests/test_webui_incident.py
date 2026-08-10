@@ -113,8 +113,11 @@ def test_sessions_are_primary_navigation_and_use_rows() -> None:
     assert "function renderConversationMapLink(e)" in html
     assert "function wireConversationMinimap(root)" in html
     assert "function clearSessionSelection(t, updateUrl = true)" in html
-    assert "function toggleSessionSelection(t, eventId)" in html
+    assert "function toggleSessionSelection(t, eventId, scroll = true)" in html
     assert "if (state.selectedEventId === eventId) clearSessionSelection(t)" in html
+    assert "toggleSessionSelection(t, el.dataset.sessionEvent, false)" in html
+    assert 'data-message-detail="${escapeHtml(event.event_id)}"' in html
+    assert "event.stopPropagation()" in html
     assert "event.key !== 'Escape'" in html
     assert "history.state?.selectedEventId || ''" in html
     assert "events[0].event_id, false, false" not in html
