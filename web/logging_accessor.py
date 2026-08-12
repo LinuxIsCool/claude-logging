@@ -272,6 +272,7 @@ class LoggingAccessor:
 
     def healthz(self) -> dict[str, Any]:
         """Health check: index DB present + real-time rollup daemon fresh."""
+        started = time.perf_counter()
         ok = True
         issues = []
         index_ok = self.index_db.exists()
@@ -347,8 +348,14 @@ class LoggingAccessor:
             "ok": ok,
             "namespace": NAMESPACE,
             "database": str(self.index_db),
-            "elapsed_ms": int((time.time() - self._start_time) * 1000),
+            # Duration of THIS call. It previously reported
+            # time.time() - self._start_time, which is the accessor's
+            # uptime, so the hub's card showed "healthz 26m" for a check
+            # that takes 42ms and the number grew all day. The field is
+            # named elapsed_ms and consumers treat it as a duration.
+            "elapsed_ms": round((time.perf_counter() - started) * 1000, 2),
             "stats": {
+                "uptime_s": round(time.time() - self._start_time, 1),
                 "key_metric": event_count,
                 "key_metric_label": "events",
                 "projects": project_count,
